@@ -1,0 +1,3 @@
+SUPABASE_URL = "https://rahcdnyvtrhdauixoyzp.supabase.co"
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJhaGNkbnl2dHJoZGF1aXhveXpwIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0MDQwNTc0MCwiZXhwIjoyMDU1OTgxNzQwfQ.4vvTy1NXN--01xhAfZJY4eITdQb9aLDNXH9oAdC-bjg"
+GOOGLE_API_KEY = "AIzaSyCu7LPLrOExMye01c2PA9BZodMpDn-KE-A"
