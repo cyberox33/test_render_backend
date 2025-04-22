@@ -11,3 +11,4 @@ pydantic==2.11.3
 python_jose==3.4.0
 supabase==2.15.0
 uvicorn==0.34.2
+google-generativeai
