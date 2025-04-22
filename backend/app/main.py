@@ -349,4 +349,22 @@ async def get_recommendation_status(session_id: str, current_user: TokenData = D
 # Run the Application
 # -------------------------------
 if __name__ == "__main__":
-    uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)
+    # 1. Get the PORT environment variable provided by Render.
+    #    os.environ.get() retrieves the value as a string.
+    #    If 'PORT' isn't set (e.g., running locally), use 10000 as a default.
+    #    Render's default is 10000, so it's a sensible default choice.
+    port_str = os.environ.get("PORT", "10000")
+
+    # 2. Convert the port string to an integer.
+    #    Uvicorn expects the port number as an integer.
+    try:
+        port = int(port_str)
+    except ValueError:
+        # Fallback if the PORT environment variable is somehow not a valid number
+        print(f"Warning: Invalid PORT environment variable '{port_str}'. Falling back to port 10000.")
+        port = 10000
+
+    # 3. Run Uvicorn, binding to all interfaces ('0.0.0.0') and the port Render expects.
+    #    'reload=False' is recommended for production on Render.
+    print(f"Starting server on host 0.0.0.0 and port {port}") # Optional: Add a log message
+    uvicorn.run("app.main:app", host="0.0.0.0", port=port, reload=False)
