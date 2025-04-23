@@ -165,7 +165,7 @@ def login(user: User):
     return {"access_token": access_token, "token_type": "bearer"}
 
 # -------------------------------
-# Public Root Endpoint
+# Public Root Endpoint (we made mistakes)
 # -------------------------------
 @app.get("/")
 def read_root():
