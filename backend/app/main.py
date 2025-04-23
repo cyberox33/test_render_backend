@@ -42,6 +42,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+class ProcessingStatus:
+    STARTED = "STARTED"
+    PIPELINE_RUNNING = "PIPELINE_RUNNING"
+    GENERATING_RECOMMENDATIONS = "GENERATING_RECOMMENDATIONS"
+    READY = "READY"
+    ERROR = "ERROR"
+    NOT_FOUND = "NOT_FOUND" # For cases where session doesn't exist
+
 # -------------------------------
 # Pydantic Models
 # -------------------------------
@@ -77,12 +85,28 @@ class RecommendationStatus(BaseModel):
     url: Optional[str] = None
     error_message: Optional[str] = None
 
+def update_session_status(session_id: str, new_status: str):
+    """Updates the processing_status for a given session_id."""
+    try:
+        print(f"Updating session {session_id} status to: {new_status}")
+        supabase.table("user_sessions")\
+            .update({"processing_status": new_status})\
+            .eq("session_id", session_id)\
+            .execute()
+        print(f"Session {session_id} status update successful.")
+    except Exception as e:
+        print(f"ERROR updating session {session_id} status to {new_status}: {e}")
+        # Decide if you want to raise this error or just log it
+        # Raising might stop the background task prematurely if not handled
+
 async def run_full_pipeline_and_generate_report(session_id: str):
     """
     Wrapper function for the background task.
     Runs potentially blocking pipeline and recommendation functions in threads.
     """
     print(f"BACKGROUND TASK STARTED for session {session_id}")
+    current_status = ProcessingStatus.PIPELINE_RUNNING # Should already be set by caller
+
     try:
         # Step 1: Run the iterative pipeline in a thread
         print(f"Running iterative RAG pipeline for session {session_id} in thread...")
@@ -97,11 +121,14 @@ async def run_full_pipeline_and_generate_report(session_id: str):
 
         if not pipeline_success: # Check if pipeline indicated success
              print(f"Iterative RAG pipeline failed or did not complete for session {session_id}.")
+             current_status = ProcessingStatus.ERROR
+             update_session_status(session_id, current_status)
              # Optionally update session status in DB to indicate failure
              return # Stop processing
 
-        print(f"Iterative RAG pipeline finished for session {session_id}. Starting recommendation generation in thread...")
-
+        print(f"Iterative RAG pipeline finished. Updating status and starting recommendation generation...")
+        current_status = ProcessingStatus.GENERATING_RECOMMENDATIONS
+        update_session_status(session_id, current_status)
         # Step 2: Generate and Upload Recommendations in a thread
         template_file = "template.pptx" # Relative name
         # Assuming generate_and_upload_recommendations is a standard synchronous function
@@ -114,14 +141,20 @@ async def run_full_pipeline_and_generate_report(session_id: str):
 
         if recommendation_success:
             print(f"Recommendations generated and uploaded successfully for session {session_id}.")
+            current_status = ProcessingStatus.READY
+            update_session_status(session_id, current_status)
             # Optionally update session status in DB to "ready"
         else:
             print(f"Recommendation generation/upload failed for session {session_id}.")
+            current_status = ProcessingStatus.ERROR
+            update_session_status(session_id, current_status)
             # Optionally update session status in DB to indicate failure
 
     except Exception as e:
         print(f"ERROR in background task for session {session_id}: {e}")
         traceback.print_exc()
+        current_status = ProcessingStatus.ERROR
+        update_session_status(session_id, current_status)
         # Optionally update session status in DB to "error"
     finally:
          print(f"BACKGROUND TASK FINISHED for session {session_id}")
@@ -187,17 +220,32 @@ def create_session(current_user: TokenData = Depends(get_current_user)):
     if not user_result.data:
         raise HTTPException(status_code=400, detail="User not found")
     user_id = user_result.data[0]["id"]
-    new_session = {
+    new_session_data = {
         "user_id": user_id,
-        "survey_responses": {},
-        "retrieved_questions": {},
-        "coverage_state": {}
+        "processing_status": ProcessingStatus.STARTED # Initial status
     }
-    result = supabase.table("user_sessions").insert(new_session).execute()
-    if not result.data:
-        raise HTTPException(status_code=500, detail="Failed to create session.")
-    session_id = result.data[0].get("session_id")
-    return {"session_id": session_id}
+   
+    try:
+        print(f"Creating new session for user_id {user_id} with data: {new_session_data}")
+        result = supabase.table("user_sessions").insert(new_session_data).execute()
+
+        # Check response structure for errors more robustly if needed
+        if not result.data:
+             print(f"ERROR: Supabase insert for session creation returned no data. Result: {result}")
+             raise HTTPException(status_code=500, detail="Failed to create session (no data returned).")
+
+        session_id = result.data[0].get("session_id")
+        if not session_id:
+            print(f"ERROR: Supabase insert result missing session_id. Result: {result}")
+            raise HTTPException(status_code=500, detail="Failed to retrieve session ID after creation.")
+
+        print(f"Session created successfully: {session_id}")
+        return {"session_id": session_id}
+
+    except Exception as e:
+         print(f"!!! EXCEPTION during session creation for user {current_user.username}: {e}")
+         traceback.print_exc()
+         raise HTTPException(status_code=500, detail=f"Internal server error during session creation: {str(e)}")
 
 # -------------------------------
 # Protected Survey Endpoints
@@ -220,20 +268,28 @@ async def submit_survey_response(
     Stores initial survey response and triggers the background task for
     the pipeline AND recommendation generation.
     """
+    session_id = response_data.session_id
+    print(f"--- Received POST /survey-responses for session: {session_id} ---")
     try:
+        update_session_status(session_id, ProcessingStatus.PIPELINE_RUNNING)
         # Store initial survey responses (keep existing logic)
-        insert_response = supabase.table("survey_responses").insert(response_data.dict()).execute()
+        #insert_response = supabase.table("survey_responses").insert(response_data.dict()).execute()
+        payload_to_insert = response_data.dict() # Contains session_id and responses list
+        insert_response = supabase.table("survey_responses").insert(payload_to_insert).execute()
+        print(f"Supabase survey_responses insert response object: {insert_response}")
         if not insert_response.data:
              raise HTTPException(status_code=500, detail="Failed to store survey response.")
 
         # --- Trigger the WRAPPER background task ---
-        print(f"Survey submitted for {response_data.session_id}. Starting full background processing.")
-        background_tasks.add_task(run_full_pipeline_and_generate_report, response_data.session_id)
+        print(f"Survey submitted for {session_id}. Starting full background processing.")
+        background_tasks.add_task(run_full_pipeline_and_generate_report, session_id)
         # ---
 
         return {"message": "Survey response submitted. Assessment process started in background.", "data": insert_response.data} # Return quickly
     except Exception as e:
         print(f"Error in /survey-responses for session {response_data.session_id}: {e}")
+        traceback.print_exc()
+        update_session_status(session_id, ProcessingStatus.ERROR)
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/followup-responses")
@@ -300,50 +356,76 @@ async def get_followup_questions(
 @app.get("/recommendations/status/{session_id}", response_model=RecommendationStatus)
 async def get_recommendation_status(session_id: str, current_user: TokenData = Depends(get_current_user)):
     """
-    Checks if the recommendation report exists in storage and returns its status/URL.
+    Checks status in DB and optionally file storage to report overall progress.
     """
-    bucket_name = "recommendations" # Match bucket name used in upload
-    # Define expected path in the bucket
-    remote_path = f"{session_id}/recommendation_report.pptx"
-
+    print(f"Checking recommendation status for session: {session_id}")
     try:
-        # 1. Check if the file exists in the bucket
-        # Listing files with a prefix is one way to check existence
-        list_response = supabase.storage.from_(bucket_name).list(path=session_id, options={"limit": 1})
+        # 1. Check session status in the database
+        session_res = supabase.table("user_sessions")\
+            .select("processing_status")\
+            .eq("session_id", session_id)\
+            .maybe_single()\
+            .execute()
 
-        file_exists = any(file['name'] == 'recommendation_report.pptx' for file in list_response)
+        if not session_res.data:
+            print(f"Session not found in DB for status check: {session_id}")
+            # Return "not_found" status using the constant
+            return RecommendationStatus(status=ProcessingStatus.NOT_FOUND)
 
-        if not file_exists:
-            # File not found. Could still be generating or failed.
-            # TODO: Enhance this by checking a status field in user_sessions table if needed
-            print(f"Report file not found in storage for session {session_id}")
-            # Return "generating" or "not_found" based on session status if available
-            # For now, assume "generating" if not found
+        db_status = session_res.data.get("processing_status")
+        print(f"DB status for session {session_id}: {db_status}")
+
+        # 2. Determine response based on DB status
+        if db_status == ProcessingStatus.READY:
+            # If DB says ready, check storage and generate URL
+            bucket_name = "recommendations"
+            remote_path = f"{session_id}/recommendation_report.pptx"
+            print(f"DB status is READY. Checking storage at {bucket_name}/{remote_path}...")
+
+            # Check existence (optional but good)
+            list_response = supabase.storage.from_(bucket_name).list(path=session_id, options={"limit": 1, "search": "recommendation_report.pptx"})
+            file_exists = any(file['name'] == 'recommendation_report.pptx' for file in list_response)
+
+            if not file_exists:
+                 print(f"ERROR: DB status is READY but report file not found in storage for session {session_id}")
+                 # Update DB status back to ERROR? Or just report error here?
+                 # update_session_status(session_id, ProcessingStatus.ERROR) # Optional correction step
+                 return RecommendationStatus(status=ProcessingStatus.ERROR, error_message="Report marked ready but file is missing.")
+
+            # File exists, generate Signed URL
+            print(f"Report file found. Generating signed URL...")
+            signed_url_res = supabase.storage.from_(bucket_name).create_signed_url(remote_path, 3600) # Expires in 1 hour
+
+            if "error" in signed_url_res and signed_url_res["error"]:
+                error_detail = signed_url_res['error'].get('message', 'Unknown error')
+                print(f"Error generating signed URL for {remote_path}: {error_detail}")
+                return RecommendationStatus(status=ProcessingStatus.ERROR, error_message=f"Failed to generate download URL: {error_detail}")
+
+            download_url = signed_url_res.get("signedURL")
+            if not download_url:
+                print(f"Signed URL result missing 'signedURL' key for {remote_path}")
+                return RecommendationStatus(status=ProcessingStatus.ERROR, error_message="Download URL could not be created.")
+
+            # Return ready status with URL
+            return RecommendationStatus(status=ProcessingStatus.READY, url=download_url)
+
+        elif db_status in [ProcessingStatus.STARTED, ProcessingStatus.PIPELINE_RUNNING, ProcessingStatus.GENERATING_RECOMMENDATIONS]:
+            # These states all map to "generating" for the frontend
             return RecommendationStatus(status="generating")
 
-        # 2. File exists, generate Signed URL (assuming private bucket)
-        print(f"Report file found for session {session_id}. Generating signed URL.")
-        signed_url_res = supabase.storage.from_(bucket_name).create_signed_url(remote_path, 3600) # Expires in 1 hour
+        elif db_status == ProcessingStatus.ERROR:
+            return RecommendationStatus(status=ProcessingStatus.ERROR, error_message="Processing failed during generation.")
 
-        if "error" in signed_url_res and signed_url_res["error"]:
-             error_detail = signed_url_res['error'].get('message', 'Unknown error')
-             print(f"Error generating signed URL for {remote_path}: {error_detail}")
-             # If URL generation fails, report an error status
-             return RecommendationStatus(status="error", error_message=f"Failed to generate download URL: {error_detail}")
-
-        download_url = signed_url_res.get("signedURL")
-        if not download_url:
-             print(f"Signed URL result missing 'signedURL' key for {remote_path}")
-             return RecommendationStatus(status="error", error_message="Download URL could not be created.")
-
-        # 3. Return 'ready' status with the URL
-        return RecommendationStatus(status="ready", url=download_url)
+        else:
+            # Unknown or unexpected status
+            print(f"WARNING: Unknown DB processing_status '{db_status}' for session {session_id}")
+            return RecommendationStatus(status=ProcessingStatus.ERROR, error_message="Unknown processing state.")
 
     except Exception as e:
-        print(f"Error checking recommendation status for session {session_id}: {e}")
+        print(f"!!! EXCEPTION checking recommendation status for session {session_id}: {e}")
+        traceback.print_exc()
         # Return a generic error status
-        return RecommendationStatus(status="error", error_message=str(e))
-
+        return RecommendationStatus(status=ProcessingStatus.ERROR, error_message=f"Server error checking status: {str(e)}")
 
 # -------------------------------
 # Run the Application
