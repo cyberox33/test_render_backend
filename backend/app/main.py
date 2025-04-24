@@ -36,7 +36,7 @@ app = FastAPI(title="Assessment Platform Backend")
 # Configure CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=["http://localhost:3000", "https://test-render-frontend-zkg5.onrender.com"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
