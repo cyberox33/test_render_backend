@@ -1,20 +1,18 @@
 import math
 import copy
 from typing import Dict, Any, List, Optional, Tuple
-import numpy as np # Make sure numpy is installed: pip install numpy
-import json # Needed for get_fragment_question_map if moved here
+import numpy as np
+import json
 
-# --- Iteration Constants ---
 MAX_ITERATIONS = 7
-MAX_TOTAL_QUESTIONS = 50 # Overall limit (excluding baseline)
-QUESTIONS_PER_ITERATION = 7 # Target questions per iteration
+MAX_TOTAL_QUESTIONS = 50 
+QUESTIONS_PER_ITERATION = 7
 FRAGMENT_QUOTAS = {'A': 4, 'B': 15, 'C': 10, 'D': 14, 'E': 4, 'F': 3}
-# Priority for offloading (lower number = higher priority)
+# priorities for offloading (lower number = higher priority)
 OFFLOAD_PRIORITY = {'B': 1, 'C': 2, 'D': 3, 'A': 4, 'E': 5, 'F': 6, 'DEFAULT': 99}
-# Weight for time vs. readiness in maturity score (0=readiness only, 1=time only)
+# weight for time vs. readiness in maturity score (0=readiness only, 1=time only)
 MATURITY_TIME_WEIGHT = 0.3
 
-# --- Helper Functions used by State/Target Logic ---
 
 def extract_answer_value(answer_jsonb: Optional[Dict[str, Any]]) -> Optional[str]:
     """Extracts the 'value' from the answer JSONB structure."""

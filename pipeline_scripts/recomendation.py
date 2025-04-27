@@ -12,7 +12,7 @@ from supabase import create_client, Client
 from dotenv import load_dotenv
 from pptx import Presentation
 from pptx.util import Inches, Pt
-from pptx.enum.text import MSO_ANCHOR, MSO_AUTO_SIZE
+from pptx.enum.text import MSO_ANCHOR, MSO_AUTO_SIZE, PP_ALIGN
 from pptx.dml.color import RGBColor
 import matplotlib.pyplot as plt
 import argparse
@@ -367,9 +367,9 @@ def group_data_by_fragment(
             "question_text": question_detail.get("question"),
             "category": question_detail.get("category"),
             "subcategory": question_detail.get("subcategory"),
-            "user_answer": answer_json, # Store the parsed dictionary
+            "user_answer": answer_json, # Storing the parsed dictionary
             "processed_additional_fields": processed_add_fields,
-            # "raw_additional_fields": question_detail.get("additional_fields") # Optional: Keep if needed for debugging
+            # "raw_additional_fields": question_detail.get("additional_fields") 
         }
         grouped_data[cleaned_fragment_id]["questions_data"].append(question_data)
 
@@ -381,16 +381,15 @@ def group_data_by_fragment(
 
     return dict(grouped_data)
 
-# --- LLM Prompt Generation Functions (REFINED) ---
+# --- LLM Prompt Generation Functions ---
 def format_chunk_for_prompt(fragment_info: Dict[str, Any], questions_chunk: List[Dict[str, Any]]) -> str:
-    """Formats a chunk of questions for a fragment into a string for LLM prompts."""
     output = []
     output.append(f"Fragment ID: {fragment_info.get('fragment', 'N/A')}")
     output.append(f"Fragment Name/Category: {fragment_info.get('category', 'N/A')}")
     output.append(f"Fragment Description: {fragment_info.get('description', 'N/A')}")
     output.append("\n--- User Assessment Data (Chunk) ---")
     for q_data in questions_chunk:
-        output.append(f"\nQuestion ID: {q_data['question_id']} (Topic: {q_data.get('subcategory', 'N/A')})") # Include subcategory for theme context
+        output.append(f"\nQuestion ID: {q_data['question_id']} (Topic: {q_data.get('subcategory', 'N/A')})")
         output.append(f"Question: {q_data['question_text']}")
         try: user_answer_str = json.dumps(q_data['user_answer'])
         except TypeError: user_answer_str = str(q_data['user_answer'])
@@ -409,10 +408,8 @@ def format_chunk_for_prompt(fragment_info: Dict[str, Any], questions_chunk: List
     return "\n".join(output)
 
 def generate_insights_prompt(fragment_context: str) -> str:
-    """
-    Creates the prompt for generating Top 3 Insights (used for chunks).
-    REFINED for specificity and no IDs.
-    """
+    """Creates the prompt for generating Top 3 Insights (used for chunks). Refined."""
+    # ... (prompt content same as previous version) ...
     prompt = f"""
 Based on the following assessment data for a specific fragment chunk, identify up to 3 key insights regarding the user's current state, challenges, or strengths related to the topics covered in this chunk.
 
@@ -438,10 +435,8 @@ Top Insights for this Chunk:
     return prompt
 
 def generate_roadmap_prompt(fragment_context: str) -> str:
-    """
-    Creates the prompt for generating the Roadmap Summary as JSON (used for chunks).
-    REFINED for 'how_methodology' format, specificity, and no IDs.
-    """
+    """Creates the prompt for generating the Roadmap Summary as JSON (used for chunks). Refined."""
+    # ... (prompt content same as previous version) ...
     prompt = f"""
 Based *only* on the following assessment data chunk for a specific fragment, generate a 3-phase implementation roadmap (Early, Intermediate, Advanced Steps) **strictly as a JSON object**.
 
@@ -503,16 +498,10 @@ Required JSON Structure (for this partial roadmap):
     return prompt
 
 def generate_synthesize_insights_prompt(partial_insights_list: List[str]) -> str:
-    """
-    Creates the prompt for synthesizing partial insights into the final Top 3.
-    REFINED for specificity and no IDs.
-    """
-    combined_insights_text = "\n\n---\n\n".join(
-        f"Partial Insights Set {i+1}:\n{insight}"
-        for i, insight in enumerate(partial_insights_list) if insight and insight.strip()
-    )
+    """Creates the prompt for synthesizing partial insights into the final Top 3. Refined."""
+    # ... (prompt content same as previous version) ...
+    combined_insights_text = "\n\n---\n\n".join(f"Partial Insights Set {i+1}:\n{insight}" for i, insight in enumerate(partial_insights_list) if insight and insight.strip())
     if not combined_insights_text: return ""
-
     prompt = f"""
 Review the following sets of partial insights generated from analyzing different chunks of assessment data for the *same* overall fragment. Your task is to synthesize these partial observations into the definitive Top 3 key insights for the entire fragment.
 
@@ -537,10 +526,12 @@ Final Top 3 Insights:
 """
     return prompt
 
+# --- REWRITTEN Synthesis Prompt Generator (V2 - Paragraph Formatting & Summarization) ---
 def generate_synthesize_roadmaps_prompt(partial_roadmaps_list: List[Dict[str, Any]], fragment_id: str, fragment_name: str) -> str:
     """
-    Creates the prompt for synthesizing partial roadmaps into a final JSON roadmap.
-    REFINED for 'how_methodology' format, specificity, and no IDs.
+    Creates the prompt for synthesizing partial roadmaps into a FINAL,
+    CONSOLIDATED roadmap JSON structure. Instructs LLM to format steps
+    and subtasks as paragraphs and attempt summarization.
     """
     valid_partial_roadmaps = [r for r in partial_roadmaps_list if r and isinstance(r, dict) and r.get("phases")]
     if not valid_partial_roadmaps: return ""
@@ -553,192 +544,219 @@ def generate_synthesize_roadmaps_prompt(partial_roadmaps_list: List[Dict[str, An
         except Exception as e2: print(f"Fallback serialization also failed: {e2}"); return ""
 
     prompt = f"""
-You are given a list of partial implementation roadmaps (as a JSON array), each generated from analyzing a different chunk of assessment data for the *same* overall fragment (ID: {fragment_id}, Name: {fragment_name}). Your task is to synthesize these partial roadmaps into a single, coherent, final 3-phase implementation roadmap (Early, Intermediate, Advanced Steps) **strictly as a JSON object**.
+You are given a list of partial implementation roadmaps (as a JSON array), each generated from analyzing a different chunk of assessment data for the *same* overall fragment (ID: {fragment_id}, Name: {fragment_name}). Your task is to synthesize these into a single, **consolidated roadmap description** while **preserving the distinct hour totals** for the original Early, Intermediate, and Advanced phases for graphing purposes. Output **strictly as a JSON object** following the specified structure.
 
 List of Partial Roadmaps (JSON Array):
 {partial_roadmaps_json_str}
 
 Instructions for Synthesis and Final JSON Output:
-1.  **Analyze All Partial Roadmaps:** Review the 'phases' within each partial roadmap.
-2.  **Merge Phases:**
-    * **Consolidate Activities & Goals:** For each final phase (Early, Intermediate, Advanced), combine related activities, goals, and methodologies from the corresponding partial phases. Identify logical progressions.
-    * **Synthesize `how_methodology`:** Critically review the `how_methodology` strings from all partial roadmaps for the corresponding phase. **Merge these into a single, sequentially re-numbered list of specific, actionable steps within ONE string.** Ensure correct numbering (1., 2., 3., ...). Remove redundancy. **Crucially, do NOT repeat 'Step X:' labels.** Example format: "1. Define initial monitoring scope. 2. Install monitoring agents on critical servers. 3. Configure basic dashboards in Grafana."
-    * **Combine `who_roles_involved` & `tools_platforms_used`:** Create consolidated, unique lists (as comma-separated strings or lists of strings).
-    * **Aggregate `estimate_per_subtask`:** Combine subtask estimates. Sum hours for similar tasks or create representative combined entries. Present as a labelled string.
-    * **Sum `total_hours`:** Calculate the total hours for each final phase by summing the `total_hours` from corresponding partial phases. Ensure numeric integer output.
-    * **Create Overarching `step_title` and `description`:** Formulate concise, specific titles and descriptions for each final phase based on the merged content. Avoid jargon.
-3.  **Generate Final Top-Level Fields:**
-    * **`fragment_id`:** "{fragment_id}"
-    * **`fragment_name`:** "{fragment_name}"
-    * **`summary_context`:** Write a new, specific, brief (~2-3 sentence) narrative overview summarizing the overall state based on *all* partial roadmaps. Avoid jargon.
-    * **`total_estimated_hours`:** Numeric integer sum of the final three phase `total_hours`.
-    * **`key_roles_involved`:** Final consolidated list/string of unique roles across all phases.
-4.  **Content Quality:** Ensure all generated text fields (`summary_context`, `description`, `step_title`, `how_methodology`) are specific, actionable, and avoid vague generalities.
-5.  **No Question IDs:** **Do NOT refer to specific Question IDs** anywhere in the output JSON. Refer to underlying topics or themes if necessary (e.g., "addressing the gaps identified in automated testing processes").
-6.  **Output Format:** Output **ONLY the final synthesized JSON object**, starting with `{{` and ending with `}}`. No extra text, markdown, or explanations.
+1.  **Analyze All Partial Roadmaps:** Review the content within the 'Early Steps', 'Intermediate Steps', and 'Advanced Steps' phases of each partial roadmap.
+2.  **Calculate Phase Hour Totals:** Sum the `total_hours` for all 'Early Steps' phases across all partial roadmaps. Do the same for 'Intermediate Steps' and 'Advanced Steps'. Store these three sums accurately as numeric integers.
+3.  **Consolidate Content:**
+    * **Synthesize `how_methodology`:** Critically review the `how_methodology` steps from all partial roadmaps for the corresponding phase. **Merge these into a single string formatted as a paragraph.** Inject clear inline headers (e.g., "\\n--- Early Steps ---\\n", "\\n--- Intermediate Steps ---\\n", "\\n--- Advanced Steps ---\\n") before each phase's steps. **Within each phase's section, format the steps as a single flowing paragraph with sequential numbering (e.g., '1. Action A. 2. Action B. 3. Action C.') using spaces after the period, NOT newlines.** Where appropriate and without losing critical information, **combine very short, directly related steps into a single numbered item** for conciseness (e.g., '4. Setup basic monitoring and alerting.'). Ensure steps remain specific and actionable. **Do NOT repeat 'Step X:' labels.**
+    * **Synthesize `estimate_per_subtask`:** Similarly, combine the subtask estimates from all partial phases into a **single string formatted as a paragraph.** Group estimates under inline phase headers ("--- Early Steps ---", etc.). **Separate individual estimates within each phase using semicolons and spaces (e.g., 'Task A - 10h; Task B - 15h; Task C - 5h'). Avoid using newlines for each estimate.** Aggregate hours for similar tasks where appropriate.
+    * **Consolidate `who_roles_involved` & `tools_platforms_used`:** Create single lists/strings of unique roles and tools mentioned across *all* phases in *all* partial roadmaps.
+    * **Synthesize `description`:** Write a single, coherent narrative description that flows through the objectives and activities originally planned for the early, intermediate, and advanced stages. Aim for specificity and reasonable conciseness. Avoid jargon.
+    * **Create Consolidated `title`:** Create a single, overarching title for the entire consolidated roadmap (e.g., "Fragment {fragment_id} Implementation Plan").
+4.  **Generate Top-Level Fields:**
+    * **`fragment_id` & `fragment_name`:** Use the provided values: "{fragment_id}", "{fragment_name}".
+    * **`summary_context`:** Write a new, specific, brief (~2-3 sentence) overall summary based on *all* partial inputs. Avoid jargon.
+    * **`total_estimated_hours`:** Sum the three calculated phase hour totals from step 2. Ensure numeric integer.
+    * **`key_roles_involved`:** Use the consolidated list of unique roles generated in step 3.
+5.  **Structure Output JSON:** Create the final JSON object with the exact structure specified below. Place the calculated phase hour totals (as numeric integers) within the `graph_phase_data` field. Place all the consolidated/merged content within the `consolidated_details` field.
+6.  **Content Quality:** Ensure all text is specific, actionable, and avoids vague language or excessive length. **Do NOT refer to specific Question IDs.**
+7.  **Output ONLY JSON:** Output *only* the final JSON object, starting with `{{` and ending with `}}`. No extra text, markdown, or explanations.
 
 Required Final JSON Structure:
 {{
   "fragment_id": "{fragment_id}",
   "fragment_name": "{fragment_name}",
-  "summary_context": "[Synthesized, specific ~2-3 sentence narrative overview]",
-  "total_estimated_hours": "[Numeric integer sum of final phase hours]",
-  "key_roles_involved": "[Final consolidated list/string of unique roles]",
-  "phases": [
-    {{
-      "phase_name": "Early Steps",
-      "step_title": "[Specific, synthesized title for Early Steps]",
-      "description": "[Specific, synthesized description for Early Steps]",
-      "how_methodology": "[Single string with merged, re-numbered list of specific actions, e.g., '1. Action A. 2. Action B. ...']",
-      "who_roles_involved": "[Consolidated list/string of roles for Early Steps]",
-      "tools_platforms_used": "[Consolidated list/string of tools for Early Steps]",
-      "estimate_per_subtask": "[Consolidated/Aggregated subtask estimates string]",
-      "total_hours": "[Numeric integer sum of hours for Early Steps]"
-    }},
-    {{
-      "phase_name": "Intermediate Steps",
-      "step_title": "[Specific, synthesized title for Intermediate Steps]",
-      "description": "[Specific, synthesized description for Intermediate Steps]",
-      "how_methodology": "[Single string with merged, re-numbered list of specific actions]",
-      "who_roles_involved": "[Consolidated list/string of roles for Intermediate Steps]",
-      "tools_platforms_used": "[Consolidated list/string of tools for Intermediate Steps]",
-      "estimate_per_subtask": "[Consolidated/Aggregated subtask estimates string]",
-      "total_hours": "[Numeric integer sum of hours for Intermediate Steps]"
-    }},
-    {{
-      "phase_name": "Advanced Steps",
-      "step_title": "[Specific, synthesized title for Advanced Steps]",
-      "description": "[Specific, synthesized description for Advanced Steps]",
-      "how_methodology": "[Single string with merged, re-numbered list of specific actions]",
-      "who_roles_involved": "[Consolidated list/string of roles for Advanced Steps]",
-      "tools_platforms_used": "[Consolidated list/string of tools for Advanced Steps]",
-      "estimate_per_subtask": "[Consolidated/Aggregated subtask estimates string]",
-      "total_hours": "[Numeric integer sum of hours for Advanced Steps]"
-    }}
-  ]
+  "summary_context": "[Specific, synthesized ~2-3 sentence narrative overview]",
+  "total_estimated_hours": "[Numeric integer sum of all phase hours]",
+  "key_roles_involved": "[Final consolidated list/string of unique roles across all phases]",
+  "graph_phase_data": {{
+    "Early Steps": {{"total_hours": "[Numeric integer sum of hours for ALL Early Steps]"}},
+    "Intermediate Steps": {{"total_hours": "[Numeric integer sum of hours for ALL Intermediate Steps]"}},
+    "Advanced Steps": {{"total_hours": "[Numeric integer sum of hours for ALL Advanced Steps]"}}
+  }},
+  "consolidated_details": {{
+    "title": "[Consolidated title for the overall roadmap]",
+    "description": "[Consolidated narrative description covering progression through phases]",
+    "how_methodology": "[SINGLE string PARAGRAPH with inline phase headers and merged, sequentially re-numbered steps separated by SPACES, e.g., '--- Early Steps ---\\n1. Action A. 2. Action B. --- Intermediate Steps ---\\n3. Action C. ...']",
+    "who_roles_involved": "[Consolidated list/string of unique roles for the entire roadmap]",
+    "tools_platforms_used": "[Consolidated list/string of unique tools for the entire roadmap]",
+    "estimate_per_subtask": "[SINGLE string PARAGRAPH with inline phase headers and aggregated/merged subtask estimates separated by SEMICOLONS, e.g., '--- Early Steps ---\\nTask A - 10h; Task B - 15h --- Intermediate Steps ---\\nTask C - 25h; ...']"
+  }}
 }}
 """
     return prompt
 
-# --- Roadmap Parsing and Graphing (Unchanged from previous version) ---
+
+
+
+# --- Roadmap Parsing (Updated for New Synthesis Structure) ---
 def parse_roadmap_output_json(roadmap_json_text: str) -> Optional[Dict[str, Any]]:
     """
-    Parses the roadmap JSON text (partial or synthesized).
-    Returns a dictionary with roadmap details or None if parsing fails.
-    Includes key renaming for PPT compatibility.
+    Parses the CONSOLIDATED roadmap JSON structure from the synthesis step.
+    Extracts graph data and consolidated text details.
+    Returns a dictionary containing both parts, or None if parsing fails.
     """
     if not roadmap_json_text: print("Warning: Roadmap JSON text is empty."); return None
     cleaned_text = roadmap_json_text.strip()
     cleaned_text = re.sub(r'^```(?:json)?\s*', '', cleaned_text, flags=re.IGNORECASE)
     cleaned_text = re.sub(r'\s*```$', '', cleaned_text); cleaned_text = cleaned_text.strip()
-    cleaned_text = re.sub(r',\s*([\}\]])', r'\1', cleaned_text) # Fix trailing commas
-
+    cleaned_text = re.sub(r',\s*([\}\]])', r'\1', cleaned_text)
     try:
         if not cleaned_text.startswith("{") or not cleaned_text.endswith("}"):
-            # print("Warning: Roadmap text doesn't start/end with {}. Searching for JSON object.") # Less verbose
             json_match = re.search(r'\{.*\S.*\}', cleaned_text, re.DOTALL)
             if json_match: cleaned_text = json_match.group(0)
-            else: print("Error: Could not find valid JSON object structure in the text."); raise json.JSONDecodeError("Invalid JSON structure", cleaned_text, 0)
-
+            else: print("Error: Could not find valid JSON object structure."); raise json.JSONDecodeError("Invalid JSON structure", cleaned_text, 0)
         roadmap_data = json.loads(cleaned_text)
         if not isinstance(roadmap_data, dict): print("Error: Parsed roadmap JSON is not a dictionary."); return None
 
-        # Ensure 'phases' exists, even if empty initially
-        if "phases" not in roadmap_data: roadmap_data["phases"] = []
-        elif not isinstance(roadmap_data["phases"], list): print("Error: Parsed roadmap JSON 'phases' is not a list."); return None
+        final_data = {}
+        # Top-level fields
+        final_data['fragment_id'] = roadmap_data.get('fragment_id')
+        final_data['fragment_name'] = roadmap_data.get('fragment_name')
+        final_data['summary_context'] = roadmap_data.get('summary_context')
+        final_data['key_roles_involved'] = roadmap_data.get('key_roles_involved')
+        if isinstance(final_data['key_roles_involved'], list): final_data['key_roles_involved'] = ", ".join(map(str, final_data['key_roles_involved']))
+        elif final_data['key_roles_involved'] is None: final_data['key_roles_involved'] = "N/A"
 
-        total_hours_calc = 0; valid_phases = []
-        for i, phase in enumerate(roadmap_data.get("phases", [])):
-            if not isinstance(phase, dict): print(f"Warning: Phase item at index {i} is not a dict. Skipping."); continue
-            try: phase['total_hours'] = int(float(phase.get('total_hours', 0))); total_hours_calc += phase['total_hours']
-            except (ValueError, TypeError) as e: print(f"Warning: Could not parse total_hours for phase {i}: {e}. Setting to 0."); phase['total_hours'] = 0
+        # Graph data extraction and preparation
+        graph_data = roadmap_data.get('graph_phase_data')
+        temp_phases_for_graph = []
+        total_hours_from_graph_data = 0
+        expected_phases = ["Early Steps", "Intermediate Steps", "Advanced Steps"] # Order for graph
+        if isinstance(graph_data, dict):
+            for phase_name in expected_phases: # Ensure consistent order
+                 phase_info = graph_data.get(phase_name)
+                 if isinstance(phase_info, dict) and 'total_hours' in phase_info:
+                     try:
+                         hours = int(float(phase_info['total_hours']))
+                         # Use a structure similar to what create_roadmap_graph expects
+                         temp_phases_for_graph.append({"name": phase_name, "total_hours": hours})
+                         total_hours_from_graph_data += hours
+                     except (ValueError, TypeError): print(f"Warning: Invalid hours in graph_phase_data for {phase_name}.")
+                 else: print(f"Warning: Missing or invalid phase_info format in graph_phase_data for {phase_name}.")
+        else: print("Warning: 'graph_phase_data' field missing or not a dictionary.")
+        final_data['phases_for_graph'] = temp_phases_for_graph # Store for graph function
 
-            # Rename keys for PPT compatibility
-            phase["name"] = phase.pop("phase_name", f"Phase {i+1}")
-            phase["title"] = phase.pop("step_title", "N/A")
-            phase["how"] = phase.pop("how_methodology", "N/A") # Renamed from prompt
-            phase["who"] = phase.pop("who_roles_involved", "N/A")
-            if isinstance(phase["who"], list): phase["who"] = ", ".join(map(str, phase["who"]))
-            phase["tools"] = phase.pop("tools_platforms_used", "N/A")
-            if isinstance(phase["tools"], list): phase["tools"] = ", ".join(map(str, phase["tools"]))
-            phase["subtasks"] = phase.pop("estimate_per_subtask", "N/A")
-            valid_phases.append(phase)
-        roadmap_data["phases"] = valid_phases
+        # Validate top-level total_estimated_hours
+        try: final_data['total_estimated_hours'] = int(float(roadmap_data.get('total_estimated_hours', 0)))
+        except (ValueError, TypeError): final_data['total_estimated_hours'] = total_hours_from_graph_data
+        if final_data.get('total_estimated_hours', 0) != total_hours_from_graph_data:
+            print(f"Warning: Top-level hours ({final_data.get('total_estimated_hours')}) != graph phase sum ({total_hours_from_graph_data}). Using sum.")
+            final_data['total_estimated_hours'] = total_hours_from_graph_data
 
-        # Validate/update top-level total hours
-        try: roadmap_data['total_estimated_hours'] = int(float(roadmap_data.get('total_estimated_hours', 0)))
-        except (ValueError, TypeError): roadmap_data['total_estimated_hours'] = total_hours_calc
-        if roadmap_data.get('total_estimated_hours', 0) != total_hours_calc:
-            if 'total_estimated_hours' in roadmap_data: print(f"Warning: Top-level hours ({roadmap_data.get('total_estimated_hours')}) differs from phase sum ({total_hours_calc}). Using sum.")
-            roadmap_data['total_estimated_hours'] = total_hours_calc
+        # Consolidated details for PPT text
+        consolidated_details = roadmap_data.get('consolidated_details')
+        if isinstance(consolidated_details, dict):
+             final_data['details'] = {
+                 "title": consolidated_details.get("title", "Consolidated Implementation Plan"),
+                 "description": consolidated_details.get("description", "N/A"),
+                 "how_methodology": consolidated_details.get("how_methodology", "N/A"),
+                 "who_roles_involved": consolidated_details.get("who_roles_involved", "N/A"),
+                 "tools_platforms_used": consolidated_details.get("tools_platforms_used", "N/A"),
+                 "estimate_per_subtask": consolidated_details.get("estimate_per_subtask", "N/A")
+             }
+             if isinstance(final_data['details']['who_roles_involved'], list): final_data['details']['who_roles_involved'] = ", ".join(map(str, final_data['details']['who_roles_involved']))
+             if isinstance(final_data['details']['tools_platforms_used'], list): final_data['details']['tools_platforms_used'] = ", ".join(map(str, final_data['details']['tools_platforms_used']))
+        else: print("Warning: 'consolidated_details' missing or invalid."); final_data['details'] = {"error": "Consolidated details missing or invalid."}
 
-        # Ensure top-level roles is string
-        if "key_roles_involved" in roadmap_data and isinstance(roadmap_data["key_roles_involved"], list): roadmap_data["key_roles_involved"] = ", ".join(map(str, roadmap_data["key_roles_involved"]))
-        elif "key_roles_involved" not in roadmap_data: roadmap_data["key_roles_involved"] = "N/A"
-        return roadmap_data
+        if not final_data.get('phases_for_graph') and final_data.get('details', {}).get('error'):
+             print("Error: Parsing failed to extract usable graph data or consolidated details."); return None
 
+        return final_data
     except json.JSONDecodeError as e: print(f"Error: Failed to decode roadmap JSON: {e}"); return None
     except Exception as e: print(f"Error processing parsed roadmap data: {e}"); traceback.print_exc(); return None
 
-def create_roadmap_graph(roadmap_data: Dict[str, Any]) -> Optional[io.BytesIO]:
-    """ Generates roadmap bar chart, returns in-memory buffer. """
-    if not roadmap_data or not isinstance(roadmap_data.get("phases"), list) or not roadmap_data["phases"]: return None
-    phases = roadmap_data["phases"]; phase_names = [p.get("name", f"P{i+1}") for i, p in enumerate(phases)]
-    total_hours = [p.get("total_hours", 0) for p in phases]; total_days = [h / HOURS_PER_DAY for h in total_hours]
-    if not any(d > 0 for d in total_days): return None
+# --- Graphing Function ---
+def create_roadmap_graph(graph_phase_data: List[Dict[str, Any]]) -> Optional[io.BytesIO]:
+    """
+    Generates roadmap bar chart from phase data (name, total_hours).
+    Returns in-memory buffer.
+    MODIFIED to take the specifically prepared list for the graph.
+    """
+    if not graph_phase_data or not isinstance(graph_phase_data, list): return None
+
+    phase_names = [p.get("name", f"P{i+1}") for i, p in enumerate(graph_phase_data)]
+    total_hours = [p.get("total_hours", 0) for p in graph_phase_data]
+    total_days = [h / HOURS_PER_DAY for h in total_hours]
+    if not any(d >= 0 for d in total_days): return None # Allow zero days now
+
     try:
         fig, ax = plt.subplots(figsize=(7, 4))
-        bars = ax.bar(phase_names, total_days, color=['#4A90E2', '#F5A623', '#50E3C2', '#BD10E0', '#7ED321'][:len(phase_names)])
-        ax.set_ylabel(f'Est. Duration (Days)', fontsize=9); ax.set_title(f'Phase Durations: {roadmap_data.get("fragment_name", "Fragment")}', fontsize=10)
+        bars = ax.bar(phase_names, total_days, color=['#4A90E2', '#F5A623', '#50E3C2'][:len(phase_names)])
+        ax.set_ylabel(f'Est. Duration (Days)', fontsize=9)
+        # Title might need to come from elsewhere now, or be generic
+        # ax.set_title(f'Phase Durations: {fragment_name_placeholder}', fontsize=10)
+        ax.set_title(f'Estimated Phase Durations', fontsize=10)
         ax.set_xticks(range(len(phase_names))); ax.set_xticklabels(phase_names, rotation=0, ha='center', fontsize=9)
         ax.spines['top'].set_visible(False); ax.spines['right'].set_visible(False); ax.yaxis.grid(True, linestyle='--', alpha=0.6); ax.tick_params(axis='y', labelsize=9)
-        for bar in bars:
-            yval = bar.get_height();
-            if yval > 0: plt.text(bar.get_x() + bar.get_width()/2.0, yval, f'{yval:.1f}', va='bottom', ha='center', fontsize=8)
+        for bar in bars: yval = bar.get_height();
+        if yval > 0: plt.text(bar.get_x() + bar.get_width()/2.0, yval, f'{yval:.1f}', va='bottom', ha='center', fontsize=8)
+        elif yval == 0 : plt.text(bar.get_x() + bar.get_width()/2.0, yval, f'0', va='bottom', ha='center', fontsize=8) # Show 0 if zero
         plt.tight_layout(pad=0.5); img_buffer = io.BytesIO(); plt.savefig(img_buffer, format='png', dpi=120); img_buffer.seek(0); plt.close(fig); return img_buffer
     except Exception as e: print(f"Error generating graph: {e}"); traceback.print_exc(); return None
 
-# --- PPT Generation Functions (Unchanged from previous version) ---
+# --- PPT Generation Functions ---
 def add_text_to_shape(shape, text):
     """Helper to add text to a shape, handling None values."""
     if shape and hasattr(shape, "text_frame"): tf = shape.text_frame; tf.text = str(text) if text is not None else ""; tf.word_wrap = True
     elif shape and hasattr(shape, "text"): shape.text = str(text) if text is not None else ""
 
+# Use the version that applies justification but allows default auto-fitting
 def add_text_slide(prs: Presentation, title_text: str, content_text: str, layout_index: int = DEFAULT_LAYOUT_TITLE_CONTENT):
-    """ Adds slide with title/content, handles overflow, uses safe placeholder access. """
+    """
+    Adds slide with title/content, using default auto-fitting for font size,
+    but sets the content text alignment to Justified.
+    """
     try: slide_layout = prs.slide_layouts[layout_index]
     except IndexError: print(f"Error: Layout index {layout_index} OOR. Using 0."); slide_layout = prs.slide_layouts[0]
     slide = prs.slides.add_slide(slide_layout); title_shape = None; content_shape = None; title_ph_idx = -1; content_ph_idx = -1
-    for i, ph in enumerate(slide.placeholders):
-         if 'Title' in ph.name or ph.placeholder_format.idx == 0 or ph.placeholder_format.idx == 10:
-             if title_shape is None: title_shape = ph; title_ph_idx = i
-         elif 'Content' in ph.name or 'Body' in ph.name or 'Text' in ph.name or ph.placeholder_format.idx == 1 or ph.placeholder_format.idx == 11:
-              if content_shape is None: content_shape = ph; content_ph_idx = i
-    if title_shape is None and len(slide.placeholders) > 0:
-        try: title_shape = slide.placeholders[0]; title_ph_idx = 0; # print(f"Info: Using placeholder idx 0 as title fallback for L{layout_index}.") # Verbose
-        except (KeyError, IndexError): pass
-    if content_shape is None and len(slide.placeholders) > 1 and title_ph_idx != 1:
-        try: content_shape = slide.placeholders[1]; content_ph_idx = 1; # print(f"Info: Using placeholder idx 1 as content fallback for L{layout_index}.") # Verbose
-        except (KeyError, IndexError): pass
-
+    try: title_shape = slide.shapes.title; title_ph_idx = title_shape.placeholder_format.idx
+    except AttributeError: pass
+    try:
+         if len(slide.placeholders) > 1: content_shape = slide.placeholders[1]; content_ph_idx = 1
+    except (KeyError, IndexError, AttributeError): pass
+    if title_shape is None or content_shape is None:
+        for i, ph in enumerate(slide.placeholders):
+            ph_name = ph.name.lower() if ph.name else ""; ph_type = ph.placeholder_format.type
+            if title_shape is None and ('title' in ph_name or ph.placeholder_format.idx == 0 or ph.placeholder_format.idx == 10): title_shape = ph; title_ph_idx = i
+            elif content_shape is None and ('content' in ph_name or 'body' in ph_name or 'text' in ph_name or ph.placeholder_format.idx == 1 or ph.placeholder_format.idx == 11):
+                 if i != title_ph_idx: content_shape = ph; content_ph_idx = i
+            if title_shape is not None and content_shape is not None: break
     if title_shape: add_text_to_shape(title_shape, title_text)
     else: print(f"Warning: Could not find title placeholder for '{title_text}' on layout {layout_index}.")
-    if content_shape: tf = content_shape.text_frame; tf.word_wrap = True; tf.vertical_anchor = MSO_ANCHOR.TOP; tf.margin_bottom = Inches(0.1); tf.margin_top = Inches(0.1); add_text_to_shape(tf, content_text)
+    if content_shape:
+        tf = content_shape.text_frame; tf.clear(); add_text_to_shape(tf, content_text) # Add text first
+        try: # Apply Justification AFTER adding text
+            for paragraph in tf.paragraphs:
+                if paragraph.text.strip(): paragraph.alignment = PP_ALIGN.JUSTIFY
+        except Exception as e_align: print(f"Warning: Could not apply justification to content on slide '{title_text}': {e_align}")
+        tf.vertical_anchor = MSO_ANCHOR.TOP; tf.word_wrap = True
     else:
         print(f"Warning: Could not find content placeholder for '{title_text}' on layout {layout_index}. Adding to notes.")
         try: notes_tf = slide.notes_slide.notes_text_frame; notes_tf.text = f"Title: {title_text}\n\nContent:\n{content_text}"
         except Exception as e_notes: print(f"Error adding content to notes slide: {e_notes}")
 
+# --- Modified build_ppt_report function ---
 def build_ppt_report(session_id: str, report_data: Dict[str, Dict[str, Any]], template_path_relative: Optional[str] = "template.pptx") -> Optional[io.BytesIO]:
-    """Builds the PowerPoint presentation in memory."""
+    """
+    Builds the PowerPoint presentation in memory.
+    Uses CONSOLIDATED roadmap details for a single slide per fragment.
+    Uses separate graph data extracted by the parser.
+    """
     prs = None
+    # Template Loading
     if template_path_relative:
         try:
             script_dir = os.path.dirname(os.path.abspath(__file__))
             absolute_template_path = os.path.join(script_dir, template_path_relative)
             if os.path.exists(absolute_template_path): prs = Presentation(absolute_template_path); print(f"Loaded template: {absolute_template_path}")
             else: print(f"Warning: Template not found at {absolute_template_path}")
-        except NameError:
+        except NameError: # __file__ not defined
              if os.path.exists(template_path_relative):
                  try: prs = Presentation(template_path_relative); print(f"Loaded template from CWD: {template_path_relative}")
                  except Exception as e_cwd: print(f"Error loading template from CWD: {e_cwd}")
@@ -756,16 +774,18 @@ def build_ppt_report(session_id: str, report_data: Dict[str, Dict[str, Any]], te
         try: subtitle_shape = slide.placeholders[1]
         except (KeyError, IndexError): pass
         if title_shape: add_text_to_shape(title_shape, "Recommendation Report")
-        else: print("Warning: Title slide missing title placeholder.")
+        else: print("Warning: Title slide missing title.")
         if subtitle_shape: add_text_to_shape(subtitle_shape, f"Session ID: {session_id}\nGenerated: {time.strftime('%Y-%m-%d')}")
-        else: print("Warning: Title slide missing subtitle placeholder.")
+        else: print("Warning: Title slide missing subtitle.")
     except Exception as e: print(f"Error creating title slide: {e}")
 
     # Process fragments
     sorted_fragment_ids = sorted(report_data.keys())
     for fragment_id in sorted_fragment_ids:
-        data = report_data[fragment_id]; frag_info = data.get("fragment_info", {}); frag_name = frag_info.get('category') or frag_info.get('description') or fragment_id or "Unknown"; frag_name = str(frag_name).strip()
+        data = report_data[fragment_id]; frag_info = data.get("fragment_info", {})
+        frag_name = frag_info.get('category') or frag_info.get('description') or fragment_id or "Unknown"; frag_name = str(frag_name).strip()
         print(f"Generating slides for Fragment: {fragment_id} ({frag_name})...")
+
         # Slide: Fragment Title
         try:
             header_layout = prs.slide_layouts[DEFAULT_LAYOUT_SECTION_HEADER]; slide = prs.slides.add_slide(header_layout); title_shape = None
@@ -783,29 +803,46 @@ def build_ppt_report(session_id: str, report_data: Dict[str, Dict[str, Any]], te
         if isinstance(insights, str): insights_cleaned = re.sub(r'^\s*(\d+\.|-|\*)\s*', '', insights, flags=re.MULTILINE).strip().replace('***', '').replace('---', '')
         add_text_slide(prs, insights_title, insights_cleaned if insights_cleaned else "Insights empty/failed.")
 
-        # Slides: Roadmap
-        roadmap = data.get("roadmap"); roadmap_base_title = f"{frag_name}: Roadmap"
-        is_valid_roadmap = isinstance(roadmap, dict) and "error" not in roadmap
-        if is_valid_roadmap and roadmap.get("phases"):
-            try: # Overview Slide
-                overview_title = f"{frag_name}: Roadmap Overview"; total_hrs = roadmap.get('total_estimated_hours', 0)
-                overview_text = f"Summary: {roadmap.get('summary_context', 'N/A')}\n\nTotal Est: {total_hrs} hrs (~{total_hrs/HOURS_PER_DAY:.1f} days)\n\nKey Roles: {roadmap.get('key_roles_involved', 'N/A')}"
-                add_text_slide(prs, overview_title, overview_text, DEFAULT_LAYOUT_TITLE_CONTENT)
-            except Exception as e: print(f"Error creating roadmap overview slide: {e}")
-            for i, phase in enumerate(roadmap.get("phases", [])): # Detail Slides
-                if not isinstance(phase, dict): continue
-                phase_title = f"{frag_name}: {phase.get('name', f'Phase {i+1}')}"; phase_hrs = phase.get('total_hours', 0)
-                phase_content = (f"Goal: {phase.get('title', 'N/A')}\n\nDesc: {phase.get('description', 'N/A')}\n\nMethodology:\n{phase.get('how', 'N/A')}\n\n"
-                                 f"Roles: {phase.get('who', 'N/A')}\nTools: {phase.get('tools', 'N/A')}\n\nSubtasks Est: {phase.get('subtasks', 'N/A')}\n\n"
-                                 f"Duration: {phase_hrs} hrs (~{phase_hrs/HOURS_PER_DAY:.1f} days)")
-                add_text_slide(prs, phase_title, phase_content, DEFAULT_LAYOUT_TITLE_CONTENT)
-        else: # Roadmap failed slide
-            roadmap_error_msg = "Roadmap could not be generated or synthesized.";
-            if isinstance(roadmap, dict) and "error" in roadmap: roadmap_error_msg += f"\n\nDetails: {roadmap.get('error')}"
-            add_text_slide(prs, roadmap_base_title, roadmap_error_msg)
+        # Slides: Roadmap Overview & CONSOLIDATED Details
+        # 'parsed_roadmap_data' now contains the structure from the new parser
+        parsed_roadmap_data = data.get("roadmap")
+        roadmap_overview_title = f"{frag_name}: Roadmap Overview"
+        roadmap_details_title = f"{frag_name}: Implementation Plan Details"
 
-        # Slide: Graph
-        graph_buffer = data.get("graph_buffer"); graph_title = f"{frag_name}: Roadmap Duration Overview"
+        is_valid_parsed_roadmap = isinstance(parsed_roadmap_data, dict) and "error" not in parsed_roadmap_data.get("details", {})
+        has_graph_data = isinstance(parsed_roadmap_data, dict) and parsed_roadmap_data.get("phases_for_graph")
+
+        if is_valid_parsed_roadmap or has_graph_data:
+            # Roadmap Overview slide
+            try:
+                total_hrs = parsed_roadmap_data.get('total_estimated_hours', 0)
+                overview_text = f"Summary: {parsed_roadmap_data.get('summary_context', 'N/A')}\n\nTotal Est: {total_hrs} hrs (~{total_hrs/HOURS_PER_DAY:.1f} days)\n\nKey Roles: {parsed_roadmap_data.get('key_roles_involved', 'N/A')}"
+                add_text_slide(prs, roadmap_overview_title, overview_text, DEFAULT_LAYOUT_TITLE_CONTENT)
+            except Exception as e: print(f"Error creating roadmap overview slide: {e}")
+
+            # Single Consolidated Roadmap Details Slide
+            consolidated_details = parsed_roadmap_data.get('details', {})
+            if "error" not in consolidated_details:
+                 consolidated_content_text = (
+                     f"Overall Goal: {consolidated_details.get('title', 'N/A')}\n\n"
+                     f"Description:\n{consolidated_details.get('description', 'N/A')}\n\n"
+                     f"Methodology / Steps:\n{consolidated_details.get('how_methodology', 'N/A')}\n\n"
+                     f"Roles Involved (Overall): {consolidated_details.get('who_roles_involved', 'N/A')}\n"
+                     f"Tools/Platforms (Overall): {consolidated_details.get('tools_platforms_used', 'N/A')}\n\n"
+                     f"Subtask Estimates (Aggregated):\n{consolidated_details.get('estimate_per_subtask', 'N/A')}"
+                 )
+                 add_text_slide(prs, roadmap_details_title, consolidated_content_text, DEFAULT_LAYOUT_TITLE_CONTENT)
+            else:
+                 add_text_slide(prs, roadmap_details_title, f"Roadmap details could not be processed.\nError: {consolidated_details.get('error')}", DEFAULT_LAYOUT_TITLE_CONTENT)
+        else: # Handle case where synthesis/parsing failed entirely
+            roadmap_error_msg = "Roadmap could not be generated or parsed."
+            if isinstance(parsed_roadmap_data, dict) and "error" in parsed_roadmap_data: roadmap_error_msg += f"\n\nDetails: {parsed_roadmap_data.get('error')}"
+            add_text_slide(prs, roadmap_overview_title, roadmap_error_msg)
+            add_text_slide(prs, roadmap_details_title, "Roadmap details unavailable.")
+
+        # Slide: Roadmap Graph - Uses 'phases_for_graph' extracted by parser
+        graph_buffer = data.get("graph_buffer") # Graph buffer generated using 'phases_for_graph'
+        graph_title = f"{frag_name}: Roadmap Phase Durations"
         if graph_buffer:
             try:
                 graph_layout = None
@@ -821,27 +858,30 @@ def build_ppt_report(session_id: str, report_data: Dict[str, Dict[str, Any]], te
                         except (KeyError, IndexError): pass
                     if title_shape_g: add_text_to_shape(title_shape_g, graph_title)
                     else: print(f"Warning: Graph slide missing title placeholder.")
-                    left, top, height = Inches(0.5), Inches(1.5), Inches(5.5) # Adjust as needed
+                    left, top, height = Inches(0.5), Inches(1.5), Inches(5.5)
                     try: pic = slide.shapes.add_picture(graph_buffer, left, top, height=height)
                     except Exception as pic_err: print(f"Error adding picture to graph slide: {pic_err}")
                 else: print("Skipping graph slide - suitable layout not found.")
             except Exception as e: print(f"Error adding graph slide: {e}"); traceback.print_exc()
             finally:
                  if graph_buffer and not graph_buffer.closed: graph_buffer.close()
-        elif is_valid_roadmap and roadmap.get("phases"): add_text_slide(prs, graph_title, "Graph could not be generated.")
+        elif has_graph_data: # Add slide only if graph data existed but buffer failed
+             add_text_slide(prs, graph_title, "Graph could not be generated (e.g., zero durations).")
+        # --- End Fragment Processing ---
 
     # Save to buffer
     try: ppt_buffer = io.BytesIO(); prs.save(ppt_buffer); ppt_buffer.seek(0); print("\nPPTX saved to memory buffer."); return ppt_buffer
     except Exception as e: print(f"\nError saving presentation to buffer: {e}"); traceback.print_exc(); return None
 
+# --- Upload Function (Unchanged) ---
 def upload_report_to_supabase(session_id: str, ppt_buffer: io.BytesIO, bucket_name: str = "recommendations") -> bool:
     """Uploads the generated PPTX buffer's content (bytes) to Supabase Storage."""
     if not ppt_buffer: print("Upload failed: No PPT buffer provided."); return False
-    remote_path = f"{session_id}/recommendation_report.pptx"
+    remote_path = f"{session_id}/recommendation_report_{int(time.time())}.pptx"
     try:
         print(f"Attempting upload: bucket='{bucket_name}', path='{remote_path}'")
         supabase_client = get_supabase_client(); ppt_buffer.seek(0); ppt_bytes = ppt_buffer.read()
-        upload_response = supabase_client.storage.from_(bucket_name).upload(
+        supabase_client.storage.from_(bucket_name).upload(
             path=remote_path, file=ppt_bytes,
             file_options={"content-type": "application/vnd.openxmlformats-officedocument.presentationml.presentation", "upsert": "true"}
         )
@@ -851,25 +891,20 @@ def upload_report_to_supabase(session_id: str, ppt_buffer: io.BytesIO, bucket_na
     finally:
         if ppt_buffer and not ppt_buffer.closed: ppt_buffer.close()
 
-# --- Main Generation Function (Refactored for Chunking & Synthesis) ---
 def generate_recommendations(session_id: str) -> Dict[str, Dict[str, Any]]:
-    """Generates recommendations using context-aware chunking and synthesis."""
+    """Generates recommendations using context-aware chunking and consolidated synthesis."""
     print(f"Starting recommendation generation for session_id: {session_id}")
-    supabase_client = get_supabase_client()
-    print("Fetching data...")
+    supabase_client = get_supabase_client(); print("Fetching data...")
     followup_resp = fetch_followup_data(supabase_client, session_id)
     if not followup_resp: print("No followup responses found."); return {}
     q_ids = list(set(r['question_id'] for r in followup_resp if r.get('question_id')))
     q_details = fetch_question_details(supabase_client, q_ids)
     if not q_details: print("No question details found."); return {}
-
     print("Processing and grouping data...")
     grouped_data = group_data_by_fragment(followup_resp, q_details)
     if not grouped_data: print("No data grouped by fragment."); return {}
 
-    final_report_data = {}
-    sorted_fragment_ids = sorted(grouped_data.keys())
-    token_counter_model = None
+    final_report_data = {}; sorted_fragment_ids = sorted(grouped_data.keys()); token_counter_model = None
     try: token_counter_model = genai.GenerativeModel(LLM_MODEL_NAME); print("Token counter model initialized.")
     except Exception as e: print(f"Warning: Could not initialize token counter model: {e}.")
 
@@ -878,8 +913,7 @@ def generate_recommendations(session_id: str) -> Dict[str, Dict[str, Any]]:
         frag_name = frag_info.get('category') or frag_info.get('description') or fragment_id or "Unknown"; frag_name = str(frag_name).strip()
         print(f"\n--- Processing Fragment: {fragment_id} ({frag_name}) ---")
         all_questions = fragment_data.get("questions_data", [])
-        if not all_questions:
-            print("No questions found. Skipping fragment."); final_report_data[fragment_id] = {"fragment_info": frag_info, "insights": "No questions.", "roadmap": None, "graph_buffer": None}; continue
+        if not all_questions: print("No questions found. Skipping fragment."); final_report_data[fragment_id] = {"fragment_info": frag_info, "insights": "No questions.", "roadmap": None, "graph_buffer": None}; continue
 
         final_report_data[fragment_id] = {"fragment_info": frag_info}; partial_insights_list = []; partial_roadmaps_list = []; current_chunk_questions = []; current_chunk_tokens = 0; chunk_num = 1
 
@@ -890,22 +924,53 @@ def generate_recommendations(session_id: str) -> Dict[str, Dict[str, Any]]:
                 if token_counter_model: estimated_next_chunk_tokens = token_counter_model.count_tokens(potential_chunk_str).total_tokens
                 else: estimated_next_chunk_tokens = len(potential_chunk_str) // 4
             except Exception as e: print(f"Warning: Token counting failed during chunking ({e}). Using fallback."); estimated_next_chunk_tokens = len(potential_chunk_str) // 4
-
             is_last_question = (i == len(all_questions) - 1)
-            # Process chunk if limit reached (and it's not the last question, as that's handled after loop)
-            if current_chunk_questions and estimated_next_chunk_tokens > MAX_CHUNK_TOKENS and not is_last_question:
-                print(f"\nChunk {chunk_num}: Token limit ({MAX_CHUNK_TOKENS}) reached. Processing {len(current_chunk_questions)} questions.")
-                chunk_context_str = format_chunk_for_prompt(frag_info, current_chunk_questions)
-                # Generate Partial Insights & Roadmap
-                insights_prompt = generate_insights_prompt(chunk_context_str); insights_result = call_llm(insights_prompt, max_tokens=800, temperature=0.5)
-                if insights_result: partial_insights_list.append(insights_result); print(f"  Chunk {chunk_num} Insights: Generated.")
-                else: print(f"  Chunk {chunk_num} Insights: FAILED.")
-                roadmap_prompt = generate_roadmap_prompt(chunk_context_str); roadmap_txt = call_llm(roadmap_prompt, max_tokens=3500, temperature=0.3)
+
+            # --- Function to process a chunk (to avoid code duplication) ---
+            def process_chunk(questions_in_chunk, current_chunk_num):
+                nonlocal partial_insights_list, partial_roadmaps_list # Allow modification of outer scope lists
+                print(f"\nChunk {current_chunk_num}: Processing {len(questions_in_chunk)} questions.")
+                chunk_context_str = format_chunk_for_prompt(frag_info, questions_in_chunk)
+
+                # Generate Partial Insights
+                insights_prompt = generate_insights_prompt(chunk_context_str)
+                insights_result = call_llm(insights_prompt, max_tokens=800, temperature=0.5)
+                if insights_result: partial_insights_list.append(insights_result); print(f"  Chunk {current_chunk_num} Insights: Generated.")
+                else: print(f"  Chunk {current_chunk_num} Insights: FAILED.")
+
+                # Generate PARTIAL 3-phase roadmap
+                roadmap_prompt = generate_roadmap_prompt(chunk_context_str)
+                roadmap_txt = call_llm(roadmap_prompt, max_tokens=3500, temperature=0.3) # This is the LLM call that might return bad JSON
+
                 if roadmap_txt:
-                    roadmap_parsed = parse_roadmap_output_json(roadmap_txt)
-                    if roadmap_parsed: partial_roadmaps_list.append(roadmap_parsed); print(f"  Chunk {chunk_num} Roadmap: Parsed.")
-                    else: print(f"  Chunk {chunk_num} Roadmap: Parse FAILED.")
-                else: print(f"  Chunk {chunk_num} Roadmap: Generation FAILED.")
+                    # --- Attempt to parse the raw JSON text ---
+                    try:
+                        # Basic cleanup before parsing
+                        cleaned_roadmap_txt = roadmap_txt.strip()
+                        cleaned_roadmap_txt = re.sub(r'^```(?:json)?\s*', '', cleaned_roadmap_txt, flags=re.IGNORECASE)
+                        cleaned_roadmap_txt = re.sub(r'\s*```$', '', cleaned_roadmap_txt)
+                        cleaned_roadmap_txt = cleaned_roadmap_txt.strip()
+                        cleaned_roadmap_txt = re.sub(r',\s*([\}\]])', r'\1', cleaned_roadmap_txt) # Fix simple trailing commas
+
+                        # Attempt parsing
+                        partial_roadmap_json = json.loads(cleaned_roadmap_txt)
+                        partial_roadmaps_list.append(partial_roadmap_json) # Add the successfully parsed JSON dict
+                        print(f"  Chunk {current_chunk_num} Roadmap: Parsed.")
+                    except json.JSONDecodeError as json_err:
+                        # *** THIS IS THE CRITICAL DEBUGGING STEP ***
+                        print(f"  Chunk {current_chunk_num} Roadmap: Raw JSON Parse FAILED. Error: {json_err}")
+                        print("="*20 + f" RAW LLM OUTPUT (Chunk {current_chunk_num} Roadmap) " + "="*20)
+                        print(roadmap_txt) # Print the raw text that failed
+                        print("="*70)
+                        # Do not add to partial_roadmaps_list if parsing failed
+                else:
+                    print(f"  Chunk {current_chunk_num} Roadmap: Generation FAILED (LLM returned None).")
+            # --- End of process_chunk function ---
+
+
+            if current_chunk_questions and estimated_next_chunk_tokens > MAX_CHUNK_TOKENS and not is_last_question:
+                # Process the completed chunk
+                process_chunk(current_chunk_questions, chunk_num)
                 # Reset for next chunk
                 current_chunk_questions = [question_data]; chunk_num += 1
                 new_chunk_str = format_chunk_for_prompt(frag_info, current_chunk_questions)
@@ -914,24 +979,15 @@ def generate_recommendations(session_id: str) -> Dict[str, Dict[str, Any]]:
                      else: current_chunk_tokens = len(new_chunk_str) // 4
                 except Exception as e: print(f"Warning: Token counting failed starting chunk {chunk_num} ({e})."); current_chunk_tokens = len(new_chunk_str) // 4
             else:
-                # Add question to chunk
+                # Add question to current chunk
                 current_chunk_questions.append(question_data); current_chunk_tokens = estimated_next_chunk_tokens
-                # Process the very last chunk after the loop finishes
+                # Process the final chunk after the loop finishes
                 if is_last_question:
-                     print(f"\nChunk {chunk_num} (Final): Processing {len(current_chunk_questions)} questions.")
-                     chunk_context_str = format_chunk_for_prompt(frag_info, current_chunk_questions)
-                     insights_prompt = generate_insights_prompt(chunk_context_str); insights_result = call_llm(insights_prompt, max_tokens=800, temperature=0.5)
-                     if insights_result: partial_insights_list.append(insights_result); print(f"  Chunk {chunk_num} Insights: Generated.")
-                     else: print(f"  Chunk {chunk_num} Insights: FAILED.")
-                     roadmap_prompt = generate_roadmap_prompt(chunk_context_str); roadmap_txt = call_llm(roadmap_prompt, max_tokens=3500, temperature=0.3)
-                     if roadmap_txt:
-                         roadmap_parsed = parse_roadmap_output_json(roadmap_txt)
-                         if roadmap_parsed: partial_roadmaps_list.append(roadmap_parsed); print(f"  Chunk {chunk_num} Roadmap: Parsed.")
-                         else: print(f"  Chunk {chunk_num} Roadmap: Parse FAILED.")
-                     else: print(f"  Chunk {chunk_num} Roadmap: Generation FAILED.")
+                     process_chunk(current_chunk_questions, chunk_num)
         # --- End Chunking Loop ---
 
-        # --- Synthesis Step ---
+
+        # --- Synthesis Step (remains the same, but depends on partial_roadmaps_list) ---
         print("\n--- Synthesizing Results for Fragment ---")
         # Synthesize Insights
         final_insights = "Insights synthesis skipped (no partial insights generated)."
@@ -944,31 +1000,36 @@ def generate_recommendations(session_id: str) -> Dict[str, Dict[str, Any]]:
             else: final_insights = "Insights synthesis skipped."; print("Insights synthesis skipped.")
         final_report_data[fragment_id]["insights"] = final_insights
 
-        # Synthesize Roadmaps
-        final_roadmap = None
+        # Synthesize Roadmaps (using the NEW synthesis prompt and NEW parser)
+        parsed_final_roadmap = None
+        # *** This check is important: only synthesize if partial roadmaps were successfully parsed ***
         if partial_roadmaps_list:
-            print("Synthesizing roadmap..."); synthesis_roadmaps_prompt = generate_synthesize_roadmaps_prompt(partial_roadmaps_list, fragment_id, frag_name)
+            print("Synthesizing roadmap into consolidated structure...");
+            synthesis_roadmaps_prompt = generate_synthesize_roadmaps_prompt(partial_roadmaps_list, fragment_id, frag_name)
             if synthesis_roadmaps_prompt:
                  final_roadmap_txt = call_llm(synthesis_roadmaps_prompt, max_tokens=4096, temperature=0.2)
                  if final_roadmap_txt:
-                     print("Parsing final synthesized roadmap JSON..."); final_roadmap_parsed = parse_roadmap_output_json(final_roadmap_txt)
-                     if final_roadmap_parsed:
-                         if "fragment_name" not in final_roadmap_parsed or not final_roadmap_parsed["fragment_name"]: final_roadmap_parsed["fragment_name"] = frag_name
-                         final_roadmap = final_roadmap_parsed; print("Final roadmap parsed successfully.")
-                     else: print("Failed to parse synthesized roadmap JSON."); final_roadmap = {"error": "Failed to parse synthesized roadmap JSON", "raw_output": final_roadmap_txt[:1000]+"..."}
-                 else: print("Failed to generate synthesized roadmap JSON text."); final_roadmap = {"error": "Failed to generate synthesized roadmap JSON text"}
-            else: print("Roadmap synthesis skipped (prompt generation failed)."); final_roadmap = {"error": "Roadmap synthesis prompt generation failed"}
-        else: print("Roadmap synthesis skipped (no partial roadmaps generated)."); final_roadmap = {"error": "No partial roadmaps generated"}
-        final_report_data[fragment_id]["roadmap"] = final_roadmap
+                     print("Parsing synthesized CONSOLIDATED roadmap JSON...")
+                     parsed_final_roadmap = parse_roadmap_output_json(final_roadmap_txt) # Use the updated parser
+                     if parsed_final_roadmap: print("Final consolidated roadmap parsed successfully.")
+                     else: print("Failed to parse synthesized consolidated roadmap JSON."); parsed_final_roadmap = {"error": "Failed to parse synthesized roadmap JSON", "raw_output": final_roadmap_txt[:1000]+"..."}
+                 else: print("Failed to generate synthesized roadmap JSON text."); parsed_final_roadmap = {"error": "Failed to generate synthesized roadmap JSON text"}
+            else: print("Roadmap synthesis skipped (prompt generation failed)."); parsed_final_roadmap = {"error": "Roadmap synthesis prompt generation failed"}
+        else:
+            print("Roadmap synthesis skipped (no valid partial roadmaps were generated/parsed).") # Updated message
+            parsed_final_roadmap = {"error": "No valid partial roadmaps generated/parsed"}
+        final_report_data[fragment_id]["roadmap"] = parsed_final_roadmap # Store result (could be error dict)
 
-        # Generate Graph
+        # Generate Graph (remains the same, uses data parsed from synthesized roadmap)
         print("Generating graph..."); graph_buffer = None
-        if isinstance(final_roadmap, dict) and "error" not in final_roadmap: graph_buffer = create_roadmap_graph(final_roadmap)
+        if isinstance(parsed_final_roadmap, dict) and parsed_final_roadmap.get('phases_for_graph'):
+            graph_buffer = create_roadmap_graph(parsed_final_roadmap['phases_for_graph']) # Pass the specific graph data
         final_report_data[fragment_id]["graph_buffer"] = graph_buffer
         # --- End Fragment Processing ---
 
     print("\nRecommendation generation process completed.")
     return final_report_data
+
 
 
 # --- Main Orchestration Function (Unchanged) ---
@@ -982,16 +1043,14 @@ def generate_and_upload_recommendations(session_id: str, template_path_relative:
          ppt_buffer = build_ppt_report(session_id, report_content, template_path_relative)
          if not ppt_buffer:
              print(f"Failed to build PPT buffer for session {session_id}.")
-             # Cleanup graph buffers
-             for frag_id in report_content:
+             for frag_id in report_content: # Cleanup graph buffers
                  if report_content[frag_id].get('graph_buffer'):
                      try: report_content[frag_id]['graph_buffer'].close()
                      except Exception: pass
              return False
          print(f"Uploading report for session {session_id}...")
-         upload_success = upload_report_to_supabase(session_id, ppt_buffer)
-         if upload_success: print(f"Successfully generated and uploaded report for session {session_id}.")
-         else: print(f"Upload failed for session {session_id}.")
+         upload_success = upload_report_to_supabase(session_id, ppt_buffer) # Buffer closed inside
+         print(f"Successfully generated and uploaded report for session {session_id}." if upload_success else f"Upload failed for session {session_id}.")
          return upload_success
      except Exception as e: print(f"Error during generate_and_upload for session {session_id}: {e}"); traceback.print_exc(); return False
 
@@ -999,9 +1058,9 @@ def generate_and_upload_recommendations(session_id: str, template_path_relative:
 # --- Main Execution Block (Hardcoded Local Save) ---
 if __name__ == "__main__":
     # --- Hardcoded Settings ---
-    session_id_to_process = "1e195af3-b327-483a-ab8f-8c5f3940705c" # <-- EDIT THIS LINE
+    session_id_to_process = "9abfec21-cd10-4fb6-a65b-1137fe6cc7ef" # <-- EDIT THIS LINE
     template_file_name = "template.pptx"
-    hardcoded_output_filename = "Generated_Recommendation_Report.pptx"
+    hardcoded_output_filename = "Generated_Recommendation_Report_Consolidated.pptx" # New name
     should_upload = False # Set True to also upload
     # ---
 
@@ -1009,21 +1068,11 @@ if __name__ == "__main__":
     parser.add_argument("-s", "--session", type=str, default=session_id_to_process, help="Session ID to process.")
     parser.add_argument("-t", "--template", type=str, default=template_file_name, help="Relative path to PPTX template.")
     parser.add_argument("--upload", action='store_true', default=should_upload, help="Upload report to Supabase.")
-
-    args = parser.parse_args()
-    session_id_to_process = args.session
-    template_file_name = args.template
-    should_upload = args.upload
-
+    args = parser.parse_args(); session_id_to_process = args.session; template_file_name = args.template; should_upload = args.upload
     if not session_id_to_process or session_id_to_process == "YOUR_SESSION_ID_HERE": print("Error: Provide valid session ID via --session or edit script."); sys.exit(1)
-
-    print(f"Processing session_id: {session_id_to_process}")
-    print(f"Using template: {template_file_name}")
-    print(f"Hardcoded local output: {hardcoded_output_filename}")
-    print(f"Upload enabled: {should_upload}")
+    print(f"Processing session_id: {session_id_to_process}"); print(f"Using template: {template_file_name}"); print(f"Hardcoded local output: {hardcoded_output_filename}"); print(f"Upload enabled: {should_upload}")
 
     report_content = generate_recommendations(session_id_to_process)
-
     if report_content:
         print("\nBuilding PowerPoint presentation...")
         ppt_buffer = build_ppt_report(session_id_to_process, report_content, template_path_relative=template_file_name)
@@ -1034,17 +1083,14 @@ if __name__ == "__main__":
                 print(f"Presentation saved locally: {hardcoded_output_filename}")
             except Exception as e: print(f"\nError saving locally to '{hardcoded_output_filename}': {e}")
             if should_upload: # Upload if requested
-                 print("\nUploading report to Supabase...")
-                 ppt_buffer.seek(0); upload_success = upload_report_to_supabase(session_id_to_process, ppt_buffer)
+                 print("\nUploading report to Supabase..."); ppt_buffer.seek(0); upload_success = upload_report_to_supabase(session_id_to_process, ppt_buffer)
                  print("Upload successful." if upload_success else "Upload failed.")
             elif not ppt_buffer.closed: ppt_buffer.close() # Close buffer if not uploaded
         else:
             print("\nFailed to build PPT buffer.")
-            # Cleanup graph buffers
-            for frag_id in report_content:
+            for frag_id in report_content: # Cleanup graph buffers
                  if report_content[frag_id].get('graph_buffer'):
                      try: report_content[frag_id]['graph_buffer'].close()
                      except Exception: pass
     else: print("\nNo report data generated. PPT creation skipped.")
     print("\nScript finished.")
-
