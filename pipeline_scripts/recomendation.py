@@ -877,7 +877,7 @@ def build_ppt_report(session_id: str, report_data: Dict[str, Dict[str, Any]], te
 def upload_report_to_supabase(session_id: str, ppt_buffer: io.BytesIO, bucket_name: str = "recommendations") -> bool:
     """Uploads the generated PPTX buffer's content (bytes) to Supabase Storage."""
     if not ppt_buffer: print("Upload failed: No PPT buffer provided."); return False
-    remote_path = f"{session_id}/recommendation_report_{int(time.time())}.pptx"
+    remote_path = f"{session_id}/recommendation_report.pptx"
     try:
         print(f"Attempting upload: bucket='{bucket_name}', path='{remote_path}'")
         supabase_client = get_supabase_client(); ppt_buffer.seek(0); ppt_bytes = ppt_buffer.read()
