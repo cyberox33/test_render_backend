@@ -879,7 +879,7 @@ def generate_and_upload_recommendations(session_id: str, template_path_relative:
 # --- Main Execution Block (Hardcoded Local Save) ---
 if __name__ == "__main__":
     # --- Hardcoded Settings ---
-    session_id_to_process = "df033ae9-84d4-48ba-a577-374955cbe690" # <-- EDIT THIS LINE
+    session_id_to_process = "YOUR_SESSION_ID_HERE" # <-- EDIT THIS LINE
     template_file_name = "template.pptx"
     hardcoded_output_filename = "Generated_Recommendation_Report_CustomLayout.pptx" # New name
     should_upload = False # Set True to also upload
