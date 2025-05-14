@@ -291,7 +291,7 @@ def get_dependency_rules() -> List[Dict[str, Any]]:
         print(f"Error fetching question_dependency_rules: {e}")
         return []
 
-def extract_answer_value(answer_jsonb: Optional[Any]) -> Optional[str]: # Changed type hint for flexibility
+def extract_answer_value(answer_jsonb: Optional[Any]) -> Optional[str]: 
     """Safely extracts the 'value' from various answer structures."""
     if isinstance(answer_jsonb, dict):
         if "value" in answer_jsonb and answer_jsonb["value"] is not None:
@@ -470,18 +470,28 @@ def format_followup_qa(followup_responses: List[Dict[str, Any]]) -> str:
                     current_ans_values_as_strings = [answer_display_text]
 
                 mapped_options_text_list = []
-                for opt_item in options_list: # Iterate through items in options_list
-                    # *** FIX STARTS HERE ***
-                    if isinstance(opt_item, dict): # Check if the item is a dictionary
+                for opt_item in options_list: 
+                    opt_val_str = None
+                    opt_content_str = None
+                    if isinstance(opt_item, dict): 
                         opt_val_str = str(opt_item.get("value")) 
                         opt_content_str = opt_item.get("content", "")
-                        if opt_val_str in current_ans_values_as_strings:
-                            mapped_options_text_list.append(opt_content_str)
+                    elif isinstance(opt_item, str):
+                        # If the option item is just a string, assume it's both the value and content
+                        opt_val_str = opt_item
+                        opt_content_str = opt_item
+                        # No warning needed here as we are now handling it.
                     else:
-                        # Log a warning if an option item is not a dictionary
-                        print(f"Warning (format_followup_qa): Encountered non-dict option item for QID {q_id}. Option item: '{opt_item}'")
-                    # *** FIX ENDS HERE ***
-                
+                        # Log a warning if an option item is not a dictionary or string
+                        print(f"Warning (format_followup_qa): Encountered unexpected option type for QID {q_id}. Option item: '{opt_item}'")
+                        continue # Skip this malformed option
+
+                    if opt_val_str is not None and opt_val_str in current_ans_values_as_strings:
+                        if opt_content_str: # Ensure content is not None or empty before adding
+                           mapped_options_text_list.append(opt_content_str)
+                        elif opt_val_str: # Fallback to value if content is empty but value matched
+                           mapped_options_text_list.append(opt_val_str)
+
                 if mapped_options_text_list:
                     answer_display_text = ", ".join(mapped_options_text_list)
             
@@ -769,7 +779,7 @@ def run_iterative_rag_pipeline(session_id: str) -> bool:
     answered_baseline_responses_list = [
         r for r in all_answered_followups_post_baseline_list if r.get("question_id") in active_baseline_ids
     ]
-    formatted_baseline_qa_text = format_followup_qa(answered_baseline_responses_list) # This is where the error occurred
+    formatted_baseline_qa_text = format_followup_qa(answered_baseline_responses_list) 
     baseline_summary_text = call_llm(
         prompt=prompt_templates.BASELINE_SUMMARY_PROMPT.format(
             baseline_questions_answers=formatted_baseline_qa_text
