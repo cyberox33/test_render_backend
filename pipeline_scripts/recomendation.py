@@ -61,6 +61,19 @@ MAX_CHUNK_TOKENS = 7500; HOURS_PER_DAY = 8
 DEFAULT_LAYOUT_TITLE_CONTENT = 1; DEFAULT_LAYOUT_SECTION_HEADER = 2
 DEFAULT_LAYOUT_TITLE_ONLY = 5; DEFAULT_LAYOUT_BLANK = 6
 
+# --- NEW Constants for Aggregation ---
+FRAGMENT_RANGES = {
+    "G-M": [chr(i) for i in range(ord('G'), ord('M') + 1)],
+    "N-Q": [chr(i) for i in range(ord('N'), ord('Q') + 1)],
+}
+
+AGGREGATED_GRAPH_GROUPINGS = {
+    "G+H": ["G", "H"],
+    "I+J+K": ["I", "J", "K"],
+    "L+M": ["L", "M"],
+    "N+O": ["N", "O"],
+    "P+Q": ["P", "Q"],
+}
 
 # --- LLM Call Function (Modified for TPM) ---
 def call_llm(prompt: str, max_tokens: Optional[int] = None, temperature: float = 0.4) -> Optional[str]:
@@ -210,14 +223,14 @@ def format_chunk_for_prompt(fragment_info: Dict[str, Any], questions_chunk: List
         output.append(f"User Answer: {user_answer_str}")
         proc_fields = q_data.get('processed_additional_fields', {})
         if proc_fields:
-            output.append("  Relevant Context/Metadata:")
-            if 'guidelines' in proc_fields: output.append(f"    - Guideline: {proc_fields['guidelines']}")
-            if 'sub_sub_category' in proc_fields: output.append(f"    - Sub-Topic: {proc_fields['sub_sub_category']}")
+            output.append("  Relevant Context/Metadata:")
+            if 'guidelines' in proc_fields: output.append(f"    - Guideline: {proc_fields['guidelines']}")
+            if 'sub_sub_category' in proc_fields: output.append(f"    - Sub-Topic: {proc_fields['sub_sub_category']}")
             try:
-                if 'tools' in proc_fields: output.append(f"    - Available Tools Info: {json.dumps(proc_fields['tools'], indent=2)}")
-                if 'recommendations' in proc_fields: output.append(f"    - Specific Recommendation Context: {json.dumps(proc_fields['recommendations'], indent=2)}")
-                elif 'recommendation' in proc_fields: output.append(f"    - General Recommendation Context: {json.dumps(proc_fields['recommendation'], indent=2)}")
-            except (TypeError, ValueError) as json_err: output.append(f"    - (Error formatting context field: {json_err})")
+                if 'tools' in proc_fields: output.append(f"    - Available Tools Info: {json.dumps(proc_fields['tools'], indent=2)}")
+                if 'recommendations' in proc_fields: output.append(f"    - Specific Recommendation Context: {json.dumps(proc_fields['recommendations'], indent=2)}")
+                elif 'recommendation' in proc_fields: output.append(f"    - General Recommendation Context: {json.dumps(proc_fields['recommendation'], indent=2)}")
+            except (TypeError, ValueError) as json_err: output.append(f"    - (Error formatting context field: {json_err})")
         output.append("-" * 10)
     return "\n".join(output)
 
@@ -270,43 +283,43 @@ Instructions:
 
 Required JSON Structure (for this partial roadmap):
 {{
-  "fragment_id": "[Internal Fragment ID from Assessment Data]",
-  "fragment_name": "[Fragment Name from Assessment Data]",
-  "summary_context": "[Specific ~1-2 sentence narrative overview *based on this chunk*]",
-  "total_estimated_hours": "[Numeric integer sum of hours *from this chunk*]",
-  "key_roles_involved": "[Consolidated list/string of unique roles *from this chunk*]",
-  "phases": [
-    {{
-      "phase_name": "Early Steps",
-      "step_title": "[Specific title, e.g., Foundational Monitoring Setup]",
-      "description": "[Specific overview based on this chunk and Step 1s]",
-      "how_methodology": "[Single string with numbered list of actions, e.g., '1. Action A. 2. Action B.']",
-      "who_roles_involved": "[List/string of roles *from this chunk*]",
-      "tools_platforms_used": "[List/string of tools *from this chunk*]",
-      "estimate_per_subtask": "[Labelled subtasks/hours string *from this chunk*]",
-      "total_hours": "[Numeric integer total hours for this phase *from this chunk*]"
-    }},
-    {{
-      "phase_name": "Intermediate Steps",
-      "step_title": "[Specific title, e.g., Process Integration & Automation]",
-      "description": "[Specific goal based on this chunk and Step 2s]",
-      "how_methodology": "[Single string with numbered list of actions, e.g., '1. Action C. 2. Action D.']",
-      "who_roles_involved": "[List/string of roles *from this chunk*]",
-      "tools_platforms_used": "[List/string of tools *from this chunk*]",
-      "estimate_per_subtask": "[Labelled subtasks/hours string *from this chunk*]",
-      "total_hours": "[Numeric integer total hours for this phase *from this chunk*]"
-    }},
-    {{
-      "phase_name": "Advanced Steps",
-      "step_title": "[Specific title, e.g., Performance Optimization & Governance]",
-      "description": "[Specific plan based on this chunk and Step 3s]",
-      "how_methodology": "[Single string with numbered list of actions, e.g., '1. Action E. 2. Action F.']",
-      "who_roles_involved": "[List/string of roles *from this chunk*]",
-      "tools_platforms_used": "[List/string of tools *from this chunk*]",
-      "estimate_per_subtask": "[Labelled subtasks/hours string *from this chunk*]",
-      "total_hours": "[Numeric integer total hours for this phase *from this chunk*]"
-    }}
-  ]
+    "fragment_id": "[Internal Fragment ID from Assessment Data]",
+    "fragment_name": "[Fragment Name from Assessment Data]",
+    "summary_context": "[Specific ~1-2 sentence narrative overview *based on this chunk*]",
+    "total_estimated_hours": "[Numeric integer sum of hours *from this chunk*]",
+    "key_roles_involved": "[Consolidated list/string of unique roles *from this chunk*]",
+    "phases": [
+        {{
+            "phase_name": "Early Steps",
+            "step_title": "[Specific title, e.g., Foundational Monitoring Setup]",
+            "description": "[Specific overview based on this chunk and Step 1s]",
+            "how_methodology": "[Single string with numbered list of actions, e.g., '1. Action A. 2. Action B.']",
+            "who_roles_involved": "[List/string of roles *from this chunk*]",
+            "tools_platforms_used": "[List/string of tools *from this chunk*]",
+            "estimate_per_subtask": "[Labelled subtasks/hours string *from this chunk*]",
+            "total_hours": "[Numeric integer total hours for this phase *from this chunk*]"
+        }},
+        {{
+            "phase_name": "Intermediate Steps",
+            "step_title": "[Specific title, e.g., Process Integration & Automation]",
+            "description": "[Specific goal based on this chunk and Step 2s]",
+            "how_methodology": "[Single string with numbered list of actions, e.g., '1. Action C. 2. Action D.']",
+            "who_roles_involved": "[List/string of roles *from this chunk*]",
+            "tools_platforms_used": "[List/string of tools *from this chunk*]",
+            "estimate_per_subtask": "[Labelled subtasks/hours string *from this chunk*]",
+            "total_hours": "[Numeric integer total hours for this phase *from this chunk*]"
+        }},
+        {{
+            "phase_name": "Advanced Steps",
+            "step_title": "[Specific title, e.g., Performance Optimization & Governance]",
+            "description": "[Specific plan based on this chunk and Step 3s]",
+            "how_methodology": "[Single string with numbered list of actions, e.g., '1. Action E. 2. Action F.']",
+            "who_roles_involved": "[List/string of roles *from this chunk*]",
+            "tools_platforms_used": "[List/string of tools *from this chunk*]",
+            "estimate_per_subtask": "[Labelled subtasks/hours string *from this chunk*]",
+            "total_hours": "[Numeric integer total hours for this phase *from this chunk*]"
+        }}
+    ]
 }}
 """
     return prompt
@@ -350,8 +363,8 @@ def generate_synthesize_roadmaps_prompt(partial_roadmaps_list: List[Dict[str, An
     valid_partial_roadmaps = [r for r in partial_roadmaps_list if r and isinstance(r, dict) and r.get("phases")]
     if not valid_partial_roadmaps: return ""
     try: partial_roadmaps_json_str = json.dumps(valid_partial_roadmaps, indent=2)
-    except TypeError as e: print(f"Error serializing partial roadmaps: {e}"); 
-    try: partial_roadmaps_json_str = json.dumps([str(r) for r in valid_partial_roadmaps], indent=2); 
+    except TypeError as e: print(f"Error serializing partial roadmaps: {e}");
+    try: partial_roadmaps_json_str = json.dumps([str(r) for r in valid_partial_roadmaps], indent=2);
     except Exception as e2: print(f"Fallback serialization failed: {e2}"); return ""
 
     prompt = f"""
@@ -379,25 +392,83 @@ Instructions for Synthesis and Final JSON Output:
 
 Required Final JSON Structure:
 {{
-  "fragment_id": "{fragment_id}",
-  "fragment_name": "{fragment_name}",
-  "total_estimated_hours": "[Numeric integer sum of all phase hours]",
-  "key_roles_involved": "[Final consolidated list/string of unique roles across all phases]",
-  "graph_phase_data": {{
-    "Early Steps": {{"total_hours": "[Numeric integer sum of hours for ALL Early Steps]"}},
-    "Intermediate Steps": {{"total_hours": "[Numeric integer sum of hours for ALL Intermediate Steps]"}},
-    "Advanced Steps": {{"total_hours": "[Numeric integer sum of hours for ALL Advanced Steps]"}}
-  }},
-  "consolidated_details": {{
-    "title": "[Consolidated title for the overall roadmap]",
-    "description": "[Consolidated narrative description covering progression through phases]",
-    "how_methodology": "[SINGLE string PARAGRAPH with inline phase headers and merged, sequentially re-numbered steps separated by SPACES]",
-    "tools_platforms_used": "[Consolidated list/string of unique tools for the entire roadmap]",
-    "estimate_per_subtask": "[SINGLE string PARAGRAPH with inline phase headers and aggregated/merged subtask estimates separated by SEMICOLONS]"
-  }}
+    "fragment_id": "{fragment_id}",
+    "fragment_name": "{fragment_name}",
+    "total_estimated_hours": "[Numeric integer sum of all phase hours]",
+    "key_roles_involved": "[Final consolidated list/string of unique roles across all phases]",
+    "graph_phase_data": {{
+        "Early Steps": {{"total_hours": "[Numeric integer sum of hours for ALL Early Steps]"}},
+        "Intermediate Steps": {{"total_hours": "[Numeric integer sum of hours for ALL Intermediate Steps]"}},
+        "Advanced Steps": {{"total_hours": "[Numeric integer sum of hours for ALL Advanced Steps]"}}
+    }},
+    "consolidated_details": {{
+        "title": "[Consolidated title for the overall roadmap]",
+        "description": "[Consolidated narrative description covering progression through phases]",
+        "how_methodology": "[SINGLE string PARAGRAPH with inline phase headers and merged, sequentially re-numbered steps separated by SPACES]",
+        "tools_platforms_used": "[Consolidated list/string of unique tools for the entire roadmap]",
+        "estimate_per_subtask": "[SINGLE string PARAGRAPH with inline phase headers and aggregated/merged subtask estimates separated by SEMICOLONS]"
+    }}
 }}
 """
     return prompt
+
+# --- NEW LLM Prompt Functions for Aggregation ---
+def generate_synthesize_aggregated_insights_prompt(insights_list: List[str], range_name: str) -> str:
+    """Creates the prompt for synthesizing multiple fragment insights into Top 5 aggregated insights."""
+    combined_insights_text = "\n\n---\n\n".join(f"Insights Set {i+1}:\n{insight}" for i, insight in enumerate(insights_list) if insight and insight.strip())
+    if not combined_insights_text: return ""
+
+    prompt = f"""
+Review the following sets of key insights, where each set was generated from analyzing assessment data for a different fragment within the '{range_name}' group. Your task is to synthesize these into the definitive Top 5 key insights for the entire '{range_name}' group.
+
+Combined Fragment Insights for {range_name}:
+{combined_insights_text}
+
+Instructions:
+- Identify overarching themes, major challenges, strengths, and opportunities across all provided insight sets for this group.
+- Consolidate overlapping points and prioritize the most impactful observations relevant to the entire group.
+- **The final output must be exactly 5 distinct, specific, and actionable insights.**
+- **Do NOT refer to specific Fragment IDs or Question IDs.** Refer to the overarching themes or areas covered by the '{range_name}' group (e.g., "Across the {range_name} area, a common challenge is...", "Key strengths in {range_name} include...").
+- Present the final insights as 5 distinct points or paragraphs.
+- Focus on clarity, conciseness, and strategic relevance for the entire group.
+- Do not include introductory phrases like "Here are the aggregated insights:". Just provide the insights directly.
+- Do not use markdown formatting like '***', '---', or numbering like '1.'. Start each final insight on a new line.
+
+Final Top 5 Aggregated Insights for {range_name}:
+[Aggregated Insight 1 text]
+[Aggregated Insight 2 text]
+[Aggregated Insight 3 text]
+[Aggregated Insight 4 text]
+[Aggregated Insight 5 text]
+"""
+    return prompt
+
+def generate_synthesize_aggregated_overview_prompt(descriptions_list: List[str], range_name: str) -> str:
+    """Creates the prompt for synthesizing multiple fragment roadmap descriptions into a single aggregated overview."""
+    combined_descriptions_text = "\n\n---\n\n".join(f"Description {i+1}:\n{description}" for i, description in enumerate(descriptions_list) if description and description.strip() and description.strip() != "N/A")
+    if not combined_descriptions_text: return ""
+
+    prompt = f"""
+Review the following individual roadmap overview descriptions, where each description summarizes the implementation plan for a different fragment within the '{range_name}' group. Your task is to synthesize these into a single, coherent, aggregated overview description for the entire '{range_name}' group.
+
+Combined Fragment Roadmap Descriptions for {range_name}:
+{combined_descriptions_text}
+
+Instructions:
+- Identify the common goals, key themes, and overall progression described across the individual roadmaps for this group.
+- Synthesize these into a single narrative that provides a high-level summary of the implementation plan for the entire group.
+- The output should be a single paragraph or a few concise paragraphs.
+- **Do NOT refer to specific Fragment IDs.** Refer to the overall '{range_name}' area or the combined scope.
+- Focus on strategic objectives and the general flow of implementation across the group.
+- Avoid excessive detail from individual fragment roadmaps.
+- Do not include introductory phrases like "Aggregated Overview:". Just provide the description.
+- Do not use markdown formatting like '***', '---', or numbering.
+
+Aggregated Overview for {range_name}:
+[Aggregated overview text]
+"""
+    return prompt
+
 
 # --- Roadmap Parsing (Updated for New Synthesis Structure V2) ---
 def parse_roadmap_output_json(roadmap_json_text: str) -> Optional[Dict[str, Any]]:
@@ -469,17 +540,19 @@ def parse_roadmap_output_json(roadmap_json_text: str) -> Optional[Dict[str, Any]
     except Exception as e: print(f"Error processing parsed roadmap data: {e}"); traceback.print_exc(); return None
 
 # --- Graphing Function ---
-def create_roadmap_graph(graph_phase_data: List[Dict[str, Any]]) -> Optional[io.BytesIO]:
+def create_roadmap_graph(graph_phase_data: List[Dict[str, Any]], graph_title: str = 'Estimated Phase Durations') -> Optional[io.BytesIO]:
     """Generates roadmap bar chart from phase data (name, total_hours)."""
     if not graph_phase_data or not isinstance(graph_phase_data, list): return None
     phase_names = [p.get("name", f"P{i+1}") for i, p in enumerate(graph_phase_data)]
     total_hours = [p.get("total_hours", 0) for p in graph_phase_data]
     total_days = [h / HOURS_PER_DAY for h in total_hours]
-    if not any(d >= 0 for d in total_days): return None
+    if not any(d > 0 for d in total_days):
+        print(f"Skipping graph generation for '{graph_title}' due to zero or negative durations.")
+        return None
     try:
         fig, ax = plt.subplots(figsize=(7, 4))
         bars = ax.bar(phase_names, total_days, color=['#4A90E2', '#F5A623', '#50E3C2'][:len(phase_names)])
-        ax.set_ylabel(f'Est. Duration (Days)', fontsize=9); ax.set_title(f'Estimated Phase Durations', fontsize=10)
+        ax.set_ylabel(f'Est. Duration (Days)', fontsize=9); ax.set_title(graph_title, fontsize=10)
         ax.set_xticks(range(len(phase_names))); ax.set_xticklabels(phase_names, rotation=0, ha='center', fontsize=9)
         ax.spines['top'].set_visible(False); ax.spines['right'].set_visible(False); ax.yaxis.grid(True, linestyle='--', alpha=0.6); ax.tick_params(axis='y', labelsize=9)
         for bar in bars: yval = bar.get_height();
@@ -495,7 +568,7 @@ def add_text_to_shape(shape, text):
     elif shape and hasattr(shape, "text"): shape.text = str(text) if text is not None else ""
 
 # Use the version that applies justification but allows default auto-fitting
-def add_text_slide(prs: Presentation, title_text: str, content_text: str, layout_index: int = DEFAULT_LAYOUT_TITLE_CONTENT):
+def add_text_slide(prs: Presentation, title_text: str, content_text: str = "", layout_index: int = DEFAULT_LAYOUT_TITLE_CONTENT):
     """Adds slide with title/content, using default auto-fitting, sets content to Justified."""
     try: slide_layout = prs.slide_layouts[layout_index]
     except IndexError: print(f"Error: Layout index {layout_index} OOR. Using 0."); slide_layout = prs.slide_layouts[0]
@@ -514,17 +587,22 @@ def add_text_slide(prs: Presentation, title_text: str, content_text: str, layout
             if title_shape is not None and content_shape is not None: break
     if title_shape: add_text_to_shape(title_shape, title_text)
     else: print(f"Warning: Could not find title placeholder for '{title_text}' on layout {layout_index}.")
-    if content_shape:
-        tf = content_shape.text_frame; tf.clear(); add_text_to_shape(tf, content_text) # Add text first
-        try: # Apply Justification AFTER adding text
-            for paragraph in tf.paragraphs:
-                if paragraph.text.strip(): paragraph.alignment = PP_ALIGN.JUSTIFY
-        except Exception as e_align: print(f"Warning: Could not apply justification to content on slide '{title_text}': {e_align}")
-        tf.vertical_anchor = MSO_ANCHOR.TOP; tf.word_wrap = True
-    else:
-        print(f"Warning: Could not find content placeholder for '{title_text}' on layout {layout_index}. Adding to notes.")
-        try: notes_tf = slide.notes_slide.notes_text_frame; notes_tf.text = f"Title: {title_text}\n\nContent:\n{content_text}"
-        except Exception as e_notes: print(f"Error adding content to notes slide: {e_notes}")
+
+    if content_text: # Only add content if provided
+        if content_shape:
+            tf = content_shape.text_frame; tf.clear(); add_text_to_shape(tf, content_text) # Add text first
+            try: # Apply Justification AFTER adding text
+                for paragraph in tf.paragraphs:
+                    if paragraph.text.strip(): paragraph.alignment = PP_ALIGN.JUSTIFY
+            except Exception as e_align: print(f"Warning: Could not apply justification to content on slide '{title_text}': {e_align}")
+            tf.vertical_anchor = MSO_ANCHOR.TOP; tf.word_wrap = True
+        else:
+            print(f"Warning: Could not find content placeholder for '{title_text}' on layout {layout_index}. Adding to notes.")
+            try: notes_tf = slide.notes_slide.notes_text_frame; notes_tf.text = f"Title: {title_text}\n\nContent:\n{content_text}"
+            except Exception as e_notes: print(f"Error adding content to notes slide: {e_notes}")
+    elif content_shape: # If content_text is empty but content_shape exists, clear it
+         content_shape.text_frame.clear()
+
 
 # --- NEW Function to Add Custom Roadmap Details Slide ---
 def add_custom_roadmap_details_slide(
@@ -598,8 +676,8 @@ def add_custom_roadmap_details_slide(
 def build_ppt_report(session_id: str, report_data: Dict[str, Dict[str, Any]], template_path_relative: Optional[str] = "template.pptx") -> Optional[io.BytesIO]:
     """
     Builds the PowerPoint presentation in memory.
-    Uses fetched frag_names, custom two-column layout for roadmap details,
-    removes fragment title slide, and deletes the first slide before saving.
+    Includes introductory slides, individual fragment slides,
+    aggregated insights/overviews for specific ranges, and aggregated graphs.
     """
     prs = None
     # Template Loading
@@ -622,7 +700,7 @@ def build_ppt_report(session_id: str, report_data: Dict[str, Dict[str, Any]], te
         title_slide_layout_index = 1; title_layout = prs.slide_layouts[title_slide_layout_index]; slide = prs.slides.add_slide(title_layout)
         title_shape = None; subtitle_shape = None
         try: title_shape = slide.shapes.title
-        except AttributeError: 
+        except AttributeError:
             try: title_shape = slide.placeholders[0]
             except (KeyError, IndexError): pass
         try: subtitle_shape = slide.placeholders[1]
@@ -634,14 +712,28 @@ def build_ppt_report(session_id: str, report_data: Dict[str, Dict[str, Any]], te
     except IndexError: print(f"Error: Layout index {title_slide_layout_index} not found for Title Slide. Using layout 0."); # ... (fallback logic) ...
     except Exception as e: print(f"Error creating title slide: {e}")
 
-    # Process fragments
-    sorted_fragment_ids = sorted(report_data.keys())
+    # Get sorted fragment IDs
+    sorted_fragment_ids = sorted([fid for fid in report_data.keys() if not fid.startswith('_aggregated_')])
+
+    # Track if introductory slides have been added
+    modern_app_intro_added = False
+    sdlc_intro_added = False
+
     for fragment_id in sorted_fragment_ids:
-        data = report_data[fragment_id]; frag_info = data.get("fragment_info", {})
+        data = report_data.get(fragment_id)
+        if not data: continue # Skip if no data for this fragment
+
+        frag_info = data.get("fragment_info", {})
         frag_display_name = frag_info.get('frag_names') or f"Fragment {fragment_id}"; frag_display_name = str(frag_display_name).strip()
         print(f"Generating slides for Fragment: {fragment_id} ({frag_display_name})...")
 
-        # REMOVED: Fragment Title Slide
+        # Add introductory slides before the relevant fragments
+        if fragment_id == 'G' and not modern_app_intro_added:
+            add_text_slide(prs, "Modern Application Detailed Assessment", layout_index=DEFAULT_LAYOUT_TITLE_ONLY)
+            modern_app_intro_added = True
+        if fragment_id == 'N' and not sdlc_intro_added:
+            add_text_slide(prs, "SDLC Process Assessment", layout_index=DEFAULT_LAYOUT_TITLE_ONLY)
+            sdlc_intro_added = True
 
         # Slide: Insights (use display name)
         insights = data.get("insights", "Insights could not be generated."); insights_title = f"{frag_display_name}: Top 3 Insights"; insights_cleaned = insights
@@ -669,12 +761,12 @@ def build_ppt_report(session_id: str, report_data: Dict[str, Dict[str, Any]], te
             # Use the NEW custom function for details slide
             consolidated_details = parsed_roadmap_data.get('details', {})
             if "error" not in consolidated_details:
-                add_custom_roadmap_details_slide(
-                    prs=prs,
-                    title_text=roadmap_details_title,
-                    details=consolidated_details,
-                    font_size=8 # Fixed font size for custom slide
-                )
+                 add_custom_roadmap_details_slide(
+                     prs=prs,
+                     title_text=roadmap_details_title,
+                     details=consolidated_details,
+                     font_size=8 # Fixed font size for custom slide
+                 )
             else:
                  add_text_slide(prs, roadmap_details_title, f"Roadmap details could not be processed.\nError: {consolidated_details.get('error')}", DEFAULT_LAYOUT_TITLE_CONTENT)
 
@@ -691,13 +783,13 @@ def build_ppt_report(session_id: str, report_data: Dict[str, Dict[str, Any]], te
             try:
                 graph_layout = None
                 try: graph_layout = prs.slide_layouts[DEFAULT_LAYOUT_TITLE_ONLY]
-                except IndexError: 
+                except IndexError:
                     try: graph_layout = prs.slide_layouts[DEFAULT_LAYOUT_TITLE_CONTENT]
                     except IndexError: print(f"Error: Layouts {DEFAULT_LAYOUT_TITLE_ONLY}/{DEFAULT_LAYOUT_TITLE_CONTENT} missing."); graph_layout = None
                 if graph_layout:
                     slide = prs.slides.add_slide(graph_layout); title_shape_g = None
                     try: title_shape_g = slide.shapes.title
-                    except AttributeError: 
+                    except AttributeError:
                         try: title_shape_g = slide.placeholders[0]
                         except (KeyError, IndexError): pass
                     if title_shape_g: add_text_to_shape(title_shape_g, graph_title)
@@ -706,21 +798,96 @@ def build_ppt_report(session_id: str, report_data: Dict[str, Dict[str, Any]], te
                     try: pic = slide.shapes.add_picture(graph_buffer, left, top, height=height)
                     except Exception as pic_err: print(f"Error adding picture to graph slide: {pic_err}")
                 else: print("Skipping graph slide - suitable layout not found.")
-            except Exception as e: print(f"Error adding graph slide: {e}"); traceback.print_exc()
+            except Exception as e: print(f"Error adding graph slide: {e}"); traceback.exc_info(); traceback.print_exc()
             finally:
                  if graph_buffer and not graph_buffer.closed: graph_buffer.close()
-        elif has_graph_data:
-             add_text_slide(prs, graph_title, "Graph could not be generated (e.g., zero durations).")
-        # --- End Fragment Processing ---
+        elif has_graph_data: # Only add slide if graph data was intended but generation failed
+             add_text_slide(prs, graph_title, "Graph could not be generated (e.g., zero durations or error).")
+        # --- End Individual Fragment Processing ---
+
+        # Add Aggregated Insights/Overviews after the last fragment in the range
+        is_last_in_gm = fragment_id == FRAGMENT_RANGES["G-M"][-1] and any(f in sorted_fragment_ids for f in FRAGMENT_RANGES["G-M"])
+        is_last_in_nq = fragment_id == FRAGMENT_RANGES["N-Q"][-1] and any(f in sorted_fragment_ids for f in FRAGMENT_RANGES["N-Q"])
+
+        if is_last_in_gm:
+            print("\nAdding aggregated slides for G-M range...")
+            aggregated_insights_gm = report_data.get("_aggregated_GM_insights", "Aggregated insights for G-M could not be generated.")
+            add_text_slide(prs, "Modern Application Detailed Assessment: Aggregated Insights", aggregated_insights_gm)
+
+            aggregated_overview_gm = report_data.get("_aggregated_GM_overview", "Aggregated overview for G-M could not be generated.")
+            add_text_slide(prs, "Modern Application Detailed Assessment: Aggregated Overview", aggregated_overview_gm)
+
+        if is_last_in_nq:
+            print("\nAdding aggregated slides for N-Q range...")
+            aggregated_insights_nq = report_data.get("_aggregated_NQ_insights", "Aggregated insights for N-Q could not be generated.")
+            add_text_slide(prs, "SDLC Process Assessment: Aggregated Insights", aggregated_insights_nq)
+
+            aggregated_overview_nq = report_data.get("_aggregated_NQ_overview", "Aggregated overview for N-Q could not be generated.")
+            add_text_slide(prs, "SDLC Process Assessment: Aggregated Overview", aggregated_overview_nq)
+
+
+    # --- Add Aggregated Graph Slides at the End ---
+    print("\nAdding aggregated graph slides...")
+    for group_name, fragment_ids in AGGREGATED_GRAPH_GROUPINGS.items():
+        graph_buffer_key = f"_aggregated_graph_{group_name.replace('+', '')}"
+        graph_buffer = report_data.get(graph_buffer_key)
+        graph_title = f"Aggregated Roadmap Phase Durations: {group_name}"
+        if graph_buffer:
+            try:
+                graph_layout = None
+                try: graph_layout = prs.slide_layouts[DEFAULT_LAYOUT_TITLE_ONLY]
+                except IndexError:
+                    try: graph_layout = prs.slide_layouts[DEFAULT_LAYOUT_TITLE_CONTENT]
+                    except IndexError: print(f"Error: Layouts {DEFAULT_LAYOUT_TITLE_ONLY}/{DEFAULT_LAYOUT_TITLE_CONTENT} missing for aggregated graph."); graph_layout = None
+                if graph_layout:
+                    slide = prs.slides.add_slide(graph_layout); title_shape_g = None
+                    try: title_shape_g = slide.shapes.title
+                    except AttributeError:
+                        try: title_shape_g = slide.placeholders[0]
+                        except (KeyError, IndexError): pass
+                    if title_shape_g: add_text_to_shape(title_shape_g, graph_title)
+                    else: print(f"Warning: Aggregated graph slide missing title placeholder.")
+                    left, top, height = Inches(0.5), Inches(1.5), Inches(5.5)
+                    try: pic = slide.shapes.add_picture(graph_buffer, left, top, height=height)
+                    except Exception as pic_err: print(f"Error adding aggregated graph picture: {pic_err}")
+                else: print(f"Skipping aggregated graph slide for {group_name} - suitable layout not found.")
+            except Exception as e: print(f"Error adding aggregated graph slide for {group_name}: {e}"); traceback.print_exc()
+            finally:
+                 if graph_buffer and not graph_buffer.closed: graph_buffer.close()
+        else:
+             print(f"Aggregated graph for {group_name} could not be generated.")
+             # Optionally add a placeholder slide indicating graph failure
+             # add_text_slide(prs, graph_title, "Aggregated graph could not be generated.")
+
 
     # Delete the first slide (template reference slide)
     try:
         if len(prs.slides._sldIdLst) > 0:
-             xml_slides = prs.slides._sldIdLst; slides = list(xml_slides)
-             prs.part.drop_rel(slides[0].rId); xml_slides.remove(slides[0])
-             print("Removed the first slide from the presentation.")
+            xml_slides = prs.slides._sldIdLst; slides = list(xml_slides)
+            # Ensure we don't delete the actual title slide if it's the first one added
+            # Check if the first slide looks like a template placeholder (e.g., has specific layout or content)
+            # A simple check: if the first slide is blank or has a layout index often used for templates (like 6 for blank)
+            first_slide = prs.slides._sldIdLst[0]
+            first_slide_part = prs.part.get_slide(prs.slides._sldIdLst[0].rId)
+            is_likely_template_placeholder = False
+            try:
+                first_slide_layout = first_slide_part.slide_layout
+                if first_slide_layout.name.lower() == 'blank' or first_slide_layout.name.lower() == 'title slide' and len(prs.slides) > 1:
+                     # Check if it's the *original* first slide from the template
+                     if len(prs.slides) > (len(sorted_fragment_ids) * 4 + 1 + 2 + len(AGGREGATED_GRAPH_GROUPINGS)): # Rough estimate of added slides + title
+                         is_likely_template_placeholder = True
+            except Exception:
+                pass # Ignore errors during layout check
+
+            if is_likely_template_placeholder:
+                prs.part.drop_rel(slides[0].rId); xml_slides.remove(slides[0])
+                print("Removed the first slide (likely template placeholder) from the presentation.")
+            else:
+                 print("Skipping removal of the first slide as it appears to be the intended title slide.")
+
         else: print("Warning: No slides found to remove the first one.")
     except Exception as e_del: print(f"Error removing first slide: {e_del}"); traceback.print_exc()
+
 
     # Save final presentation to buffer
     try: ppt_buffer = io.BytesIO(); prs.save(ppt_buffer); ppt_buffer.seek(0); print("\nPPTX saved to memory buffer."); return ppt_buffer
@@ -746,7 +913,7 @@ def upload_report_to_supabase(session_id: str, ppt_buffer: io.BytesIO, bucket_na
 
 # --- Main Generation Function (Chunking/Synthesis - Uses updated parser call) ---
 def generate_recommendations(session_id: str) -> Dict[str, Dict[str, Any]]:
-    """Generates recommendations using context-aware chunking and consolidated synthesis."""
+    """Generates recommendations using context-aware chunking and consolidated synthesis, including aggregations."""
     print(f"Starting recommendation generation for session_id: {session_id}")
     supabase_client = get_supabase_client(); print("Fetching data...")
     followup_resp = fetch_followup_data(supabase_client, session_id)
@@ -761,6 +928,12 @@ def generate_recommendations(session_id: str) -> Dict[str, Dict[str, Any]]:
     final_report_data = {}; sorted_fragment_ids = sorted(grouped_data.keys()); token_counter_model = None
     try: token_counter_model = genai.GenerativeModel(LLM_MODEL_NAME); print("Token counter model initialized.")
     except Exception as e: print(f"Warning: Could not initialize token counter model: {e}.")
+
+    # Dictionaries to collect data for range aggregation
+    aggregated_insights_data = defaultdict(list) # {range_name: [insight_str1, insight_str2, ...]}
+    aggregated_overviews_data = defaultdict(list) # {range_name: [description_str1, description_str2, ...]}
+    aggregated_graph_raw_data = defaultdict(lambda: defaultdict(list)) # {group_name: {phase_name: [hour1, hour2, ...]}}
+
 
     for fragment_id in sorted_fragment_ids:
         fragment_data = grouped_data[fragment_id]; frag_info = fragment_data.get("fragment_info", {})
@@ -785,8 +958,8 @@ def generate_recommendations(session_id: str) -> Dict[str, Dict[str, Any]]:
                 print(f"\nChunk {current_chunk_num}: Processing {len(questions_in_chunk)} questions.")
                 chunk_context_str = format_chunk_for_prompt(frag_info, questions_in_chunk)
                 insights_prompt = generate_insights_prompt(chunk_context_str); insights_result = call_llm(insights_prompt, max_tokens=800, temperature=0.5)
-                if insights_result: partial_insights_list.append(insights_result); print(f"  Chunk {current_chunk_num} Insights: Generated.")
-                else: print(f"  Chunk {current_chunk_num} Insights: FAILED.")
+                if insights_result: partial_insights_list.append(insights_result); print(f"  Chunk {current_chunk_num} Insights: Generated.")
+                else: print(f"  Chunk {current_chunk_num} Insights: FAILED.")
                 roadmap_prompt = generate_roadmap_prompt(chunk_context_str); roadmap_txt = call_llm(roadmap_prompt, max_tokens=3500, temperature=0.3)
                 if roadmap_txt:
                     try: # Store raw JSON
@@ -795,9 +968,9 @@ def generate_recommendations(session_id: str) -> Dict[str, Dict[str, Any]]:
                         cleaned_roadmap_txt = re.sub(r'\s*```$', '', cleaned_roadmap_txt).strip()
                         partial_roadmap_json = json.loads(cleaned_roadmap_txt)
                         partial_roadmaps_list.append(partial_roadmap_json)
-                        print(f"  Chunk {current_chunk_num} Roadmap: Parsed (raw).")
-                    except json.JSONDecodeError as json_err: print(f"  Chunk {current_chunk_num} Roadmap: Raw JSON Parse FAILED. Error: {json_err}"); print(f"RAW TEXT:\n{roadmap_txt}\n")
-                else: print(f"  Chunk {current_chunk_num} Roadmap: Generation FAILED.")
+                        print(f"  Chunk {current_chunk_num} Roadmap: Parsed (raw).")
+                    except json.JSONDecodeError as json_err: print(f"  Chunk {current_chunk_num} Roadmap: Raw JSON Parse FAILED. Error: {json_err}"); print(f"RAW TEXT:\n{roadmap_txt}\n")
+                else: print(f"  Chunk {current_chunk_num} Roadmap: Generation FAILED.")
             # --- End process_chunk ---
             if current_chunk_questions and estimated_next_chunk_tokens > MAX_CHUNK_TOKENS and not is_last_question:
                 process_chunk(current_chunk_questions, chunk_num)
@@ -810,9 +983,9 @@ def generate_recommendations(session_id: str) -> Dict[str, Dict[str, Any]]:
                 current_chunk_questions.append(question_data); current_chunk_tokens = estimated_next_chunk_tokens
                 if is_last_question: process_chunk(current_chunk_questions, chunk_num)
 
-        # --- Synthesis Step ---
-        print("\n--- Synthesizing Results for Fragment ---")
-        # Synthesize Insights
+        # --- Synthesis Step (Individual Fragment) ---
+        print("\n--- Synthesizing Individual Fragment Results ---")
+        # Synthesize Insights (Individual)
         final_insights = "Insights synthesis skipped (no partial insights generated)."
         if partial_insights_list:
             print("Synthesizing insights..."); synthesis_insights_prompt = generate_synthesize_insights_prompt(partial_insights_list)
@@ -823,7 +996,7 @@ def generate_recommendations(session_id: str) -> Dict[str, Dict[str, Any]]:
             else: final_insights = "Insights synthesis skipped."; print("Insights synthesis skipped.")
         final_report_data[fragment_id]["insights"] = final_insights
 
-        # Synthesize Roadmaps (using the NEW synthesis prompt and UPDATED parser)
+        # Synthesize Roadmaps (Individual - using the NEW synthesis prompt and UPDATED parser)
         parsed_final_roadmap = None
         if partial_roadmaps_list:
             print("Synthesizing roadmap into consolidated structure...");
@@ -842,12 +1015,84 @@ def generate_recommendations(session_id: str) -> Dict[str, Dict[str, Any]]:
         else: print("Roadmap synthesis skipped (no valid partial roadmaps were generated/parsed)."); parsed_final_roadmap = {"error": "No valid partial roadmaps generated/parsed"}
         final_report_data[fragment_id]["roadmap"] = parsed_final_roadmap # Store result
 
-        # Generate Graph
-        print("Generating graph..."); graph_buffer = None
+        # Generate Graph (Individual)
+        print("Generating individual graph..."); graph_buffer = None
         if isinstance(parsed_final_roadmap, dict) and parsed_final_roadmap.get('phases_for_graph'):
-            graph_buffer = create_roadmap_graph(parsed_final_roadmap['phases_for_graph']) # Pass the specific graph data
+            graph_buffer = create_roadmap_graph(parsed_final_roadmap['phases_for_graph'], graph_title=f"{frag_display_name}: Estimated Phase Durations") # Pass the specific graph data with title
         final_report_data[fragment_id]["graph_buffer"] = graph_buffer
-        # --- End Fragment Processing ---
+        # --- End Individual Fragment Processing ---
+
+        # --- Collect data for Range Aggregation ---
+        for range_name, fragment_ids_in_range in FRAGMENT_RANGES.items():
+            if fragment_id in fragment_ids_in_range:
+                if final_insights and final_insights != "Insights synthesis skipped (no partial insights generated).":
+                    aggregated_insights_data[range_name].append(final_insights)
+                if isinstance(parsed_final_roadmap, dict) and "error" not in parsed_final_roadmap.get("details", {}):
+                    description = parsed_final_roadmap.get('details', {}).get('description')
+                    if description and description.strip() != "N/A":
+                        aggregated_overviews_data[range_name].append(description)
+
+        # --- Collect data for Graph Aggregation ---
+        if isinstance(parsed_final_roadmap, dict) and parsed_final_roadmap.get('phases_for_graph'):
+             for group_name, fragment_ids_in_group in AGGREGATED_GRAPH_GROUPINGS.items():
+                 if fragment_id in fragment_ids_in_group:
+                     for phase_data in parsed_final_roadmap['phases_for_graph']:
+                         phase_name = phase_data.get('name')
+                         hours = phase_data.get('total_hours', 0)
+                         if phase_name:
+                             aggregated_graph_raw_data[group_name][phase_name].append(hours)
+
+
+    # --- Perform Range Aggregation (Insights and Overviews) ---
+    print("\n--- Performing Range Aggregation (Insights & Overviews) ---")
+    for range_name, individual_insights in aggregated_insights_data.items():
+        if individual_insights:
+            print(f"Synthesizing aggregated insights for {range_name}...")
+            synthesis_prompt = generate_synthesize_aggregated_insights_prompt(individual_insights, range_name)
+            if synthesis_prompt:
+                aggregated_insights_result = call_llm(synthesis_prompt, max_tokens=1200, temperature=0.7) # Allow slightly more tokens for 5 insights
+                final_report_data[f"_aggregated_{range_name.replace('-', '')}_insights"] = aggregated_insights_result if aggregated_insights_result else f"Aggregated insights generation failed for {range_name}."
+                print(f"Aggregated insights for {range_name}: Generated." if aggregated_insights_result else f"Aggregated insights for {range_name}: FAILED.")
+            else:
+                 final_report_data[f"_aggregated_{range_name.replace('-', '')}_insights"] = f"Aggregated insights prompt generation failed for {range_name}."
+                 print(f"Aggregated insights for {range_name}: Prompt generation failed.")
+        else:
+            final_report_data[f"_aggregated_{range_name.replace('-', '')}_insights"] = f"No individual insights collected for {range_name}."
+            print(f"Aggregated insights for {range_name}: Skipped (no individual insights).")
+
+    for range_name, individual_overviews in aggregated_overviews_data.items():
+        if individual_overviews:
+            print(f"Synthesizing aggregated overview for {range_name}...")
+            synthesis_prompt = generate_synthesize_aggregated_overview_prompt(individual_overviews, range_name)
+            if synthesis_prompt:
+                aggregated_overview_result = call_llm(synthesis_prompt, max_tokens=800, temperature=0.5)
+                final_report_data[f"_aggregated_{range_name.replace('-', '')}_overview"] = aggregated_overview_result if aggregated_overview_result else f"Aggregated overview generation failed for {range_name}."
+                print(f"Aggregated overview for {range_name}: Generated." if aggregated_overview_result else f"Aggregated overview for {range_name}: FAILED.")
+            else:
+                 final_report_data[f"_aggregated_{range_name.replace('-', '')}_overview"] = f"Aggregated overview prompt generation failed for {range_name}."
+                 print(f"Aggregated overview for {range_name}: Prompt generation failed.")
+        else:
+            final_report_data[f"_aggregated_{range_name.replace('-', '')}_overview"] = f"No individual overviews collected for {range_name}."
+            print(f"Aggregated overview for {range_name}: Skipped (no individual overviews).")
+
+
+    # --- Perform Graph Aggregation ---
+    print("\n--- Performing Graph Aggregation ---")
+    for group_name, phase_hours_lists in aggregated_graph_raw_data.items():
+        aggregated_phase_data = []
+        for phase_name in ["Early Steps", "Intermediate Steps", "Advanced Steps"]: # Maintain order
+            total_hours = sum(phase_hours_lists.get(phase_name, []))
+            aggregated_phase_data.append({"name": phase_name, "total_hours": total_hours})
+
+        if any(p["total_hours"] > 0 for p in aggregated_phase_data):
+            print(f"Generating aggregated graph for {group_name}...")
+            graph_buffer = create_roadmap_graph(aggregated_phase_data, graph_title=f"Aggregated Phase Durations: {group_name}")
+            final_report_data[f"_aggregated_graph_{group_name.replace('+', '')}"] = graph_buffer
+            print(f"Aggregated graph for {group_name}: Generated." if graph_buffer else f"Aggregated graph for {group_name}: FAILED.")
+        else:
+            print(f"Aggregated graph for {group_name}: Skipped (zero total duration).")
+            final_report_data[f"_aggregated_graph_{group_name.replace('+', '')}"] = None # Ensure key exists even if None
+
 
     print("\nRecommendation generation process completed.")
     return final_report_data
@@ -855,25 +1100,29 @@ def generate_recommendations(session_id: str) -> Dict[str, Dict[str, Any]]:
 
 # --- Main Orchestration Function (Unchanged) ---
 def generate_and_upload_recommendations(session_id: str, template_path_relative: Optional[str] = "template.pptx") -> bool:
-     """Generates recommendations, builds PPT, and uploads."""
-     print(f"Starting generation and upload for session {session_id}...")
-     try:
-         report_content = generate_recommendations(session_id)
-         if not report_content: print(f"Failed to generate content for session {session_id}."); return False
-         print(f"Building PPT report for session {session_id}...")
-         ppt_buffer = build_ppt_report(session_id, report_content, template_path_relative)
-         if not ppt_buffer:
-             print(f"Failed to build PPT buffer for session {session_id}.")
-             for frag_id in report_content: # Cleanup graph buffers
-                 if report_content[frag_id].get('graph_buffer'):
-                     try: report_content[frag_id]['graph_buffer'].close()
-                     except Exception: pass
-             return False
-         print(f"Uploading report for session {session_id}...")
-         upload_success = upload_report_to_supabase(session_id, ppt_buffer) # Buffer closed inside
-         print(f"Successfully generated and uploaded report for session {session_id}." if upload_success else f"Upload failed for session {session_id}.")
-         return upload_success
-     except Exception as e: print(f"Error during generate_and_upload for session {session_id}: {e}"); traceback.print_exc(); return False
+      """Generates recommendations, builds PPT, and uploads."""
+      print(f"Starting generation and upload for session {session_id}...")
+      try:
+          report_content = generate_recommendations(session_id)
+          if not report_content: print(f"Failed to generate content for session {session_id}."); return False
+          print(f"Building PPT report for session {session_id}...")
+          ppt_buffer = build_ppt_report(session_id, report_content, template_path_relative)
+          if not ppt_buffer:
+              print(f"Failed to build PPT buffer for session {session_id}.")
+              # Cleanup graph buffers (individual and aggregated)
+              for key, data in report_content.items():
+                  if key.startswith('_aggregated_graph_') and data:
+                      try: data.close()
+                      except Exception: pass
+                  elif isinstance(data, dict) and data.get('graph_buffer'):
+                      try: data['graph_buffer'].close()
+                      except Exception: pass
+              return False
+          print(f"Uploading report for session {session_id}...")
+          upload_success = upload_report_to_supabase(session_id, ppt_buffer) # Buffer closed inside
+          print(f"Successfully generated and uploaded report for session {session_id}." if upload_success else f"Upload failed for session {session_id}.")
+          return upload_success
+      except Exception as e: print(f"Error during generate_and_upload for session {session_id}: {e}"); traceback.print_exc(); return False
 
 
 # --- Main Execution Block (Hardcoded Local Save) ---
@@ -881,7 +1130,7 @@ if __name__ == "__main__":
     # --- Hardcoded Settings ---
     session_id_to_process = "df033ae9-84d4-48ba-a577-374955cbe690" # <-- EDIT THIS LINE
     template_file_name = "template.pptx"
-    hardcoded_output_filename = "Generated_Recommendation_Report_CustomLayout.pptx" # New name
+    hardcoded_output_filename = "Generated_Recommendation_Report_Aggregated.pptx" # New name
     should_upload = False # Set True to also upload
     # ---
 
@@ -904,14 +1153,18 @@ if __name__ == "__main__":
                 print(f"Presentation saved locally: {hardcoded_output_filename}")
             except Exception as e: print(f"\nError saving locally to '{hardcoded_output_filename}': {e}")
             if should_upload: # Upload if requested
-                 print("\nUploading report to Supabase..."); ppt_buffer.seek(0); upload_success = upload_report_to_supabase(session_id_to_process, ppt_buffer)
-                 print("Upload successful." if upload_success else "Upload failed.")
+                print("\nUploading report to Supabase..."); ppt_buffer.seek(0); upload_success = upload_report_to_supabase(session_id_to_process, ppt_buffer)
+                print("Upload successful." if upload_success else "Upload failed.")
             elif not ppt_buffer.closed: ppt_buffer.close() # Close buffer if not uploaded
         else:
             print("\nFailed to build PPT buffer.")
-            for frag_id in report_content: # Cleanup graph buffers
-                 if report_content[frag_id].get('graph_buffer'):
-                     try: report_content[frag_id]['graph_buffer'].close()
-                     except Exception: pass
+            # Cleanup graph buffers (individual and aggregated)
+            for key, data in report_content.items():
+                if key.startswith('_aggregated_graph_') and data:
+                    try: data.close()
+                    except Exception: pass
+                elif isinstance(data, dict) and data.get('graph_buffer'):
+                    try: data['graph_buffer'].close()
+                    except Exception: pass
     else: print("\nNo report data generated. PPT creation skipped.")
     print("\nScript finished.")
