@@ -4,7 +4,7 @@ import re
 import copy
 import sys, os
 from collections import deque
-from typing import Dict, Any, List, Optional, Tuple # Added Tuple for type hinting
+from typing import Dict, Any, List, Optional, Tuple 
 from supabase import create_client, Client
 import google.generativeai as genai
 import google.api_core.exceptions
@@ -15,20 +15,14 @@ project_root = os.path.abspath(os.path.join(current_dir, ".."))
 if project_root not in sys.path:
     sys.path.append(project_root)
 
-# --- Local Module Imports ---
-# Assuming 'backend.utils.config' and '.prompt_templates' are accessible
-# If 'config' and 'prompt_templates' are in the same directory as this script,
-# the import might be: from utils import config (if utils is a subdir)
-# or import config (if config.py is in the same dir)
-# For this example, using the original relative imports.
-from backend.utils import config # Placeholder if your structure is different
-from . import prompt_templates # Assumes prompt_templates.py is in the same directory
-from . import iteration_logic # Assumes iteration_logic.py is in the same directory
+from backend.utils import config 
+from . import prompt_templates 
+from . import iteration_logic 
 
 # --- Supabase and Gemini API Configuration ---
 SUPABASE_URL = config.SUPABASE_URL
 SUPABASE_KEY = config.SUPABASE_KEY
-GOOGLE_API_KEY = config.GOOGLE_API_KEY # Ensure this is correctly fetched
+GOOGLE_API_KEY = config.GOOGLE_API_KEY 
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 genai.configure(api_key=GOOGLE_API_KEY)
@@ -38,13 +32,13 @@ LLM_MODEL_NAME = "gemma-3-27b-it"
 EMBEDDING_MODEL = "models/text-embedding-004"
 
 # --- Baseline Question ID Sets ---
-BASELINE_IDS_GWS = [59, 61, 64, 65, 33, 4, 25]  # Green With Software
-BASELINE_IDS_GWIS = [287, 120, 126, 212, 178, 169, 171, 237, 264, 358]  # Green Within Software
+BASELINE_IDS_GWS = [59, 61, 64, 65, 33, 4, 25]
+BASELINE_IDS_GWIS = [287, 120, 126, 212, 178, 169, 171, 237, 264, 358]
 
 # --- Rate Limiting Globals ---
 LLM_CALL_TIMESTAMPS = deque()
-MAX_RPM = 30  # As specified by Gemini API docs or your quota
-TARGET_RPM = MAX_RPM - 3  # Aim slightly lower to be safe
+MAX_RPM = 30 
+TARGET_RPM = MAX_RPM - 3 
 RPM_WINDOW_SECONDS = 60
 MAX_RETRIES = 5
 INITIAL_BACKOFF_SECONDS = 2
@@ -68,15 +62,14 @@ def call_llm(prompt: str, max_tokens: Optional[int] = None, temperature: float =
         wait_time = (oldest_call_in_window + RPM_WINDOW_SECONDS) - current_time
         wait_time = max(0, wait_time)
         print(f"RPM limit approaching ({len(LLM_CALL_TIMESTAMPS)}/{TARGET_RPM}). Waiting for {wait_time:.2f} seconds...")
-        time.sleep(wait_time + 0.1)  # Add small buffer
+        time.sleep(wait_time + 0.1)
 
-        current_time = time.monotonic() # Recalculate after sleep
+        current_time = time.monotonic() 
         while LLM_CALL_TIMESTAMPS and LLM_CALL_TIMESTAMPS[0] <= current_time - RPM_WINDOW_SECONDS:
             LLM_CALL_TIMESTAMPS.popleft()
 
-    LLM_CALL_TIMESTAMPS.append(current_time) # Record call attempt time
+    LLM_CALL_TIMESTAMPS.append(current_time)
 
-    # API Call with Retry Logic
     backoff_time = INITIAL_BACKOFF_SECONDS
     for attempt in range(MAX_RETRIES):
         try:
@@ -84,35 +77,34 @@ def call_llm(prompt: str, max_tokens: Optional[int] = None, temperature: float =
             llm = genai.GenerativeModel(LLM_MODEL_NAME)
             gen_config = genai.types.GenerationConfig(
                 temperature=temperature,
-                max_output_tokens=max_tokens if max_tokens is not None else 1024 # Default max tokens
+                max_output_tokens=max_tokens if max_tokens is not None else 1024
             )
             response = llm.generate_content(prompt, generation_config=gen_config)
 
             if response.parts:
-                # Basic token estimation (very rough)
                 estimated_input_tokens = len(prompt) / 4
                 estimated_output_tokens = len(response.text) / 4
                 print(f"LLM Call Success. Estimated Tokens: In={estimated_input_tokens:.0f}, Out={estimated_output_tokens:.0f}")
                 return response.text.strip()
             elif response.prompt_feedback.block_reason:
                 print(f"Warning: LLM call blocked. Reason: {response.prompt_feedback.block_reason}")
-                return None # Don't retry safety blocks
+                return None 
             else:
                 print("Warning: LLM returned empty response (no parts, no block reason).")
-                return None # Consider if retry is appropriate for empty responses
+                return None 
 
         except google.api_core.exceptions.ResourceExhausted as e:
             print(f"Error: ResourceExhausted (likely rate limit or quota issue) on attempt {attempt + 1}: {e}")
             if attempt < MAX_RETRIES - 1:
                 print(f"Waiting {backoff_time:.2f} seconds before retry...")
                 time.sleep(backoff_time)
-                backoff_time *= 2 # Exponential backoff
+                backoff_time *= 2 
             else:
                 print("Max retries reached after ResourceExhausted error.")
                 return None
         except Exception as e:
             print(f"Error during LLM call on attempt {attempt + 1}: {e}")
-            if "API key not valid" in str(e) or "permission" in str(e).lower(): # More robust check for auth issues
+            if "API key not valid" in str(e) or "permission" in str(e).lower():
                 print("Critical: Invalid Google API Key or insufficient permissions. Aborting retry.")
                 return None
             if attempt < MAX_RETRIES - 1:
@@ -122,15 +114,14 @@ def call_llm(prompt: str, max_tokens: Optional[int] = None, temperature: float =
             else:
                 print("Max retries reached after general error.")
                 return None
-    return None # Fallback if all retries fail
+    return None 
 
 def embed_text(text: str, task_type: str = "SEMANTIC_SIMILARITY") -> Optional[List[float]]:
     """Generates embeddings for the given text using the Gemini API."""
-    if not text or not text.strip(): # Check for empty or whitespace-only text
+    if not text or not text.strip(): 
         print("Warning: Attempted to embed empty or whitespace-only text.")
         return None
     try:
-        # Supported task types: "RETRIEVAL_QUERY", "RETRIEVAL_DOCUMENT", "SEMANTIC_SIMILARITY", "CLASSIFICATION", "CLUSTERING"
         response = genai.embed_content(
             model=EMBEDDING_MODEL,
             content=text,
@@ -144,25 +135,22 @@ def embed_text(text: str, task_type: str = "SEMANTIC_SIMILARITY") -> Optional[Li
 def build_category_filter(survey_responses: Optional[List[Dict[str, Any]]]) -> dict:
     """
     Determines the assessment category based on Q16 survey response.
-    Returns a dictionary like {"category": "Green Within Software"} or empty if not determinable.
     """
     category_filter = {}
     q16_answer_text = "Not answered or not found"
 
     if isinstance(survey_responses, list):
         for resp in survey_responses:
-            # Assuming question_id for Q16 is stored as a string 'Q16'
             if str(resp.get("question_id")) == "Q16":
                 ans_val_raw = resp.get("answer")
                 ans_val_str = None
-                if isinstance(ans_val_raw, dict): # Handle JSONB like {"value": "1"}
+                if isinstance(ans_val_raw, dict): 
                     ans_val_str = str(ans_val_raw.get("value")) if ans_val_raw.get("value") is not None else None
-                elif ans_val_raw is not None: # Handle direct value
+                elif ans_val_raw is not None: 
                     ans_val_str = str(ans_val_raw)
 
                 if ans_val_str == "1":
                     q16_answer_text = "Green With Software (Value: 1)"
-                    # Ensure this string matches the 'category' column in your 'questions' table
                     category_filter = {"category": "Green With Software"}
                     break
                 elif ans_val_str == "2":
@@ -173,7 +161,6 @@ def build_category_filter(survey_responses: Optional[List[Dict[str, Any]]]) -> d
                     q16_answer_text = f"Q16 answered with unexpected value: '{ans_val_str}'"
     else:
         q16_answer_text = "Survey responses format not a list or is None."
-
 
     print(f"Category filter determination based on Q16 ('{q16_answer_text}'): {category_filter}")
     return category_filter
@@ -200,7 +187,7 @@ def get_survey_responses(session_id: str) -> Optional[List[Dict[str, Any]]]:
             responses_json_data = response.data[0].get("responses")
             if isinstance(responses_json_data, list):
                 return responses_json_data
-            elif isinstance(responses_json_data, str): # Handle if JSON is stored as string
+            elif isinstance(responses_json_data, str): 
                 try:
                     return json.loads(responses_json_data)
                 except json.JSONDecodeError:
@@ -222,15 +209,12 @@ def get_followup_responses(session_id: str, answered_only: bool = False, questio
         if answered_only:
             query = query.not_.is_("answer", None)
         if question_ids:
-            # Ensure question_ids are integers for the query
             cleaned_q_ids = [int(qid) for qid in question_ids if qid is not None]
             if cleaned_q_ids:
                 query = query.in_("question_id", cleaned_q_ids)
-            else: # If no valid question_ids, don't apply this filter or return empty
-                if question_ids is not None: # if original list was not None but became empty
+            else: 
+                if question_ids is not None: 
                     return []
-
-
         response = query.execute()
         return response.data or []
     except Exception as e:
@@ -241,7 +225,6 @@ def get_question_details_by_ids(question_ids: List[Any]) -> Dict[int, Dict[str, 
     """Fetches full question details from the 'questions' table for a list of IDs."""
     if not question_ids:
         return {}
-    # Ensure IDs are integers, as they might come from various sources (e.g., strings from LLM output)
     cleaned_ids = []
     for qid in question_ids:
         try:
@@ -262,12 +245,11 @@ def get_question_details_by_ids(question_ids: List[Any]) -> Dict[int, Dict[str, 
 def get_all_fragments_info_from_db() -> List[Dict[str, Any]]:
     """
     Fetches all fragment identifiers and their descriptions from the fragment_info table.
-    This is used to populate fragment_info_map once, then filtered by active assessment type.
     """
     try:
         response = supabase.table("fragment_info").select("fragment, description").execute()
         if response.data:
-            return response.data # Returns list of dicts e.g. [{'fragment': 'A', 'description': '...'}, ...]
+            return response.data 
         else:
             print("Warning: fragment_info table might be empty or not found.")
             return []
@@ -282,7 +264,6 @@ def get_fragment_info_from_list(fragment_id: str, all_fragments_data: List[Dict[
     for item in all_fragments_data:
         if item.get('fragment') == fragment_id:
             return item
-    # This case should ideally be prevented by earlier checks ensuring active fragments exist in the info map
     print(f"Warning: Info for fragment_id '{fragment_id}' not found in the provided list.")
     return None
 
@@ -291,16 +272,15 @@ def get_industry_context(survey_responses: Optional[List[Dict[str, Any]]]) -> st
     if not survey_responses:
         return "Not specified"
     for resp in survey_responses:
-        if str(resp.get("question_id")) == "Q17": # Q17 ID is likely a string
+        if str(resp.get("question_id")) == "Q17": 
             answer_raw = resp.get("answer")
-            # Answer could be direct string or {"value": "Tech"}
             if isinstance(answer_raw, dict):
                 return str(answer_raw.get("value", "Not specified"))
             elif answer_raw is not None:
                 return str(answer_raw)
             else:
-                return "Not specified" # Q17 found but answer is null
-    return "Not specified" # Q17 not found
+                return "Not specified" 
+    return "Not specified" 
 
 def get_dependency_rules() -> List[Dict[str, Any]]:
     """Fetches all question dependency rules from Supabase."""
@@ -311,30 +291,26 @@ def get_dependency_rules() -> List[Dict[str, Any]]:
         print(f"Error fetching question_dependency_rules: {e}")
         return []
 
-def extract_answer_value(answer_jsonb: Optional[Dict[str, Any]]) -> Optional[str]:
-    """Safely extracts the 'value' from the answer JSONB structure."""
+def extract_answer_value(answer_jsonb: Optional[Any]) -> Optional[str]: # Changed type hint for flexibility
+    """Safely extracts the 'value' from various answer structures."""
     if isinstance(answer_jsonb, dict):
-        # Prioritize "value", then "content", then stringify if other keys exist
         if "value" in answer_jsonb and answer_jsonb["value"] is not None:
             return str(answer_jsonb["value"])
-        if "content" in answer_jsonb and answer_jsonb["content"] is not None: # Fallback
+        if "content" in answer_jsonb and answer_jsonb["content"] is not None: 
             return str(answer_jsonb["content"])
-        # If no 'value' or 'content' but other keys, could stringify, but often indicates an issue.
-        # For now, prefer specific keys.
-    elif answer_jsonb is not None: # If it's not a dict but has a value (e.g. direct string/number)
+    elif answer_jsonb is not None: 
         return str(answer_jsonb)
-    return None # Return None if not a dict, or keys missing, or value is None
+    return None 
 
 def calculate_dependency_exclusions(rules: List[Dict[str, Any]], answered_responses: List[Dict[str, Any]]) -> List[int]:
     """
-    Calculates which dependent question IDs should be excluded based on
-    'must_not_ask' rules and the provided answered responses.
+    Calculates which dependent question IDs should be excluded based on 'must_not_ask' rules.
     """
     must_not_ask_rules = [r for r in rules if r.get("rule_type") == "must_not_ask"]
     if not must_not_ask_rules:
         return []
 
-    answered_map = { # {question_id (int): answer_value_str_lower_case}
+    answered_map = { 
         int(resp['question_id']): (extract_answer_value(resp.get('answer')) or "").lower()
         for resp in answered_responses 
         if resp.get('question_id') is not None and resp.get('answer') is not None
@@ -344,81 +320,66 @@ def calculate_dependency_exclusions(rules: List[Dict[str, Any]], answered_respon
     for rule in must_not_ask_rules:
         try:
             dep_id = int(rule.get("dependent_question_id"))
-            indep_id_str = rule.get("independent_question_id") # "1;2;3"
-            condition_values_str = rule.get("condition_answer_values") # "Yes;Maybe"
-            condition_type = rule.get("condition_type") # 'exact_match', 'match_any' (of condition_values)
-            condition_logic = rule.get("condition_logic") # 'match_all', 'match_any' (of independent questions)
+            indep_id_str = rule.get("independent_question_id") 
+            condition_values_str = rule.get("condition_answer_values") 
+            condition_type = rule.get("condition_type") 
+            condition_logic = rule.get("condition_logic") 
         except (ValueError, TypeError):
-            # print(f"Warning: Skipping rule due to invalid dependent_question_id format: {rule.get('dependent_question_id')}")
             continue
 
-
         if not dep_id or not indep_id_str or not condition_values_str or not condition_type or not condition_logic:
-            # print(f"Warning: Skipping incomplete rule: {rule}")
             continue
 
         try:
             indep_ids_list = [int(i.strip()) for i in indep_id_str.split(';') if i.strip()]
-            # Store condition values as lower case for case-insensitive matching
             condition_values_list = [v.strip().lower() for v in condition_values_str.split(';') if v.strip()]
         except ValueError:
-            # print(f"Warning: Could not parse IDs or condition values in rule: {rule}")
             continue
 
         if not indep_ids_list or not condition_values_list:
             continue
-
-        # Check if prerequisite independent questions are answered sufficiently based on condition_logic
+        
         num_answered_prereqs = sum(1 for i_id in indep_ids_list if i_id in answered_map)
         prereqs_met_for_rule_evaluation = False
-        if condition_logic == 'match_all': # All independent questions must be answered
+        if condition_logic == 'match_all': 
             if num_answered_prereqs == len(indep_ids_list):
                 prereqs_met_for_rule_evaluation = True
-        elif condition_logic == 'match_any' or condition_logic == 'none': # At least one must be answered
-            # 'none' logic: if any indep q is answered, the condition is checked against it.
+        elif condition_logic == 'match_any' or condition_logic == 'none': 
             if num_answered_prereqs > 0:
                 prereqs_met_for_rule_evaluation = True
         
         if not prereqs_met_for_rule_evaluation:
-            continue # Not enough context to evaluate this rule yet
+            continue
 
-        # Evaluate the answer condition
         condition_fulfilled_to_exclude = False
-        # Store boolean result for each *answered* independent_id's check against condition_values_list
         individual_match_results = [] 
         
-        # Only consider independent questions that are actually answered for this rule
         answered_relevant_indep_ids = [i_id for i_id in indep_ids_list if i_id in answered_map]
-        if not answered_relevant_indep_ids: # Should be caught by prereqs_met, but defensive
+        if not answered_relevant_indep_ids: 
             continue
 
         for i_id in answered_relevant_indep_ids:
-            actual_answer_lower = answered_map.get(i_id) # Already lowercased
-            # actual_answer_lower should not be None here due to answered_map construction
-            
+            actual_answer_lower = answered_map.get(i_id) 
             current_indep_match = False
-            if condition_type == 'exact_match': # The actual answer must exactly match one of the condition values
+            if condition_type == 'exact_match': 
                 if actual_answer_lower in condition_values_list:
                     current_indep_match = True
-            elif condition_type == 'match_any': # (Same as exact_match for now, as per previous logic)
+            elif condition_type == 'match_any': 
                 if actual_answer_lower in condition_values_list:
                     current_indep_match = True
-            # Add other condition types like 'contains', 'not_in' if needed
             individual_match_results.append(current_indep_match)
 
-        if not individual_match_results: # No conditions evaluated (e.g. if all relevant indep_ids had no answer, though unlikely)
+        if not individual_match_results: 
             continue
 
-        # Apply the logic based on how many independent answers matched
-        if condition_logic == 'match_all': # All *answered relevant* independent questions must satisfy the condition
+        if condition_logic == 'match_all': 
             if all(individual_match_results):
                 condition_fulfilled_to_exclude = True
-        elif condition_logic == 'match_any' or condition_logic == 'none': # Any *answered relevant* independent question satisfying the condition is enough
+        elif condition_logic == 'match_any' or condition_logic == 'none': 
             if any(individual_match_results):
                 condition_fulfilled_to_exclude = True
         
         if condition_fulfilled_to_exclude:
-            # print(f"DEBUG: Excluding Q {dep_id} based on rule for Q(s) {indep_ids_list}. Rule: {rule}")
             dependency_excluded_ids.add(dep_id)
             
     return list(dependency_excluded_ids)
@@ -426,53 +387,47 @@ def calculate_dependency_exclusions(rules: List[Dict[str, Any]], answered_respon
 def format_survey_qa(survey_questions: List[Dict[str, Any]], survey_responses: List[Dict[str, Any]]) -> str:
     """Formats survey questions and their answers for the LLM prompt."""
     qa_string = ""
-    # Create a map of {question_id_str: user_answer_str} from survey_responses
     response_map = {}
     if survey_responses:
-        for resp_item in survey_responses: # survey_responses is a list of dicts
-            q_id_from_resp = str(resp_item.get("question_id")) # e.g., "Q1", "Q17"
+        for resp_item in survey_responses: 
+            q_id_from_resp = str(resp_item.get("question_id")) 
             ans_raw = resp_item.get("answer")
             ans_str = extract_answer_value(ans_raw) if ans_raw is not None else "No answer"
             response_map[q_id_from_resp] = ans_str
 
-    for q_data in survey_questions: # survey_questions from survey_questions table
-        q_id_str = str(q_data.get("question_id")) # e.g., "Q1"
+    for q_data in survey_questions: 
+        q_id_str = str(q_data.get("question_id")) 
         q_content = q_data.get("content", "N/A")
-        q_options_list = q_data.get("options") # This is a list of option dicts
+        q_options_list = q_data.get("options") 
 
         user_answer_final_text = response_map.get(q_id_str, "No answer")
 
-        # If options exist and it's not a subjective (free text) question, try to map value to option text
         if q_options_list and isinstance(q_options_list, list) and not q_data.get("subjective_answer"):
-            # User answer might be a single value or a list of values (e.g. "a" or ["a","b"])
-            # extract_answer_value should give us the string representation of this.
             current_ans_values_from_map = []
             raw_ans_from_map = response_map.get(q_id_str)
 
             if raw_ans_from_map and raw_ans_from_map != "No answer":
-                try: # Handle if answer is stored as a JSON list string '["a", "b"]' or '["1"]'
+                try: 
                     parsed_ans = json.loads(raw_ans_from_map)
                     if isinstance(parsed_ans, list):
                         current_ans_values_from_map = [str(v) for v in parsed_ans]
-                    else: # If it parses to a single item (e.g. number, string)
+                    else: 
                         current_ans_values_from_map = [str(parsed_ans)]
-                except json.JSONDecodeError: # Not a JSON string, treat as a single direct value
+                except json.JSONDecodeError: 
                     current_ans_values_from_map = [raw_ans_from_map]
             
             mapped_option_texts = []
             if current_ans_values_from_map:
                 for opt_dict in q_options_list:
-                    opt_val_letter = str(opt_dict.get("option_letter")) # e.g., "a", "1"
+                    opt_val_letter = str(opt_dict.get("option_letter")) 
                     opt_content_text = opt_dict.get("content", "")
                     if opt_val_letter in current_ans_values_from_map:
                         mapped_option_texts.append(opt_content_text)
             
             if mapped_option_texts:
                 user_answer_final_text = ", ".join(mapped_option_texts)
-            # Else, if no mapping but an answer exists, keep the raw (possibly numeric) answer.
             elif raw_ans_from_map and raw_ans_from_map != "No answer":
                  user_answer_final_text = raw_ans_from_map
-
 
         qa_string += f"Question ({q_id_str}): {q_content}\n"
         if q_options_list and isinstance(q_options_list, list):
@@ -486,18 +441,16 @@ def format_followup_qa(followup_responses: List[Dict[str, Any]]) -> str:
     """Formats answered follow-up questions and their answers for the LLM prompt."""
     qa_string = ""
     if not followup_responses:
-        return "No previous follow-up questions answered in this context yet." # Changed message
+        return "No previous follow-up questions answered in this context yet."
 
     for resp_data in followup_responses:
-        # Ensure we only format answered questions (input should ideally be pre-filtered)
         if resp_data.get("answer") is not None:
-            q_text = resp_data.get("question", "N/A") # Question text stored in followup_responses
+            q_text = resp_data.get("question", "N/A") 
             q_id = resp_data.get("question_id", "N/A")
-            raw_answer_data = resp_data.get("answer") # Expected to be JSONB like {"value": ...} or direct value
+            raw_answer_data = resp_data.get("answer") 
             
             answer_display_text = extract_answer_value(raw_answer_data) or "N/A"
 
-            # Check for mapped answer text if options were stored with the followup
             additional_fields = resp_data.get("additional_fields", {}) if isinstance(resp_data.get("additional_fields"), dict) else {}
             options_list = None
             if "answer_options" in additional_fields and isinstance(additional_fields["answer_options"], list):
@@ -506,25 +459,28 @@ def format_followup_qa(followup_responses: List[Dict[str, Any]]) -> str:
                 options_list = additional_fields["multiple_correct_answer_options"]
 
             if options_list and answer_display_text != "N/A":
-                # Answer value might be a single value or a list of values (for multi-select)
-                # extract_answer_value gives the string form. If it's a list, it'll be like '["a","b"]'.
                 current_ans_values_as_strings = []
                 try:
-                    parsed_ans = json.loads(answer_display_text) # Try to parse if it's a list string
+                    parsed_ans = json.loads(answer_display_text) 
                     if isinstance(parsed_ans, list):
                         current_ans_values_as_strings = [str(v) for v in parsed_ans]
-                    else: # Parsed to a single item
+                    else: 
                         current_ans_values_as_strings = [str(parsed_ans)]
-                except json.JSONDecodeError: # Not a JSON list string, treat as single value
+                except json.JSONDecodeError: 
                     current_ans_values_as_strings = [answer_display_text]
 
                 mapped_options_text_list = []
-                for opt_dict in options_list:
-                    # In followup_responses, options usually have 'value' and 'content'
-                    opt_val_str = str(opt_dict.get("value")) 
-                    opt_content_str = opt_dict.get("content", "")
-                    if opt_val_str in current_ans_values_as_strings:
-                        mapped_options_text_list.append(opt_content_str)
+                for opt_item in options_list: # Iterate through items in options_list
+                    # *** FIX STARTS HERE ***
+                    if isinstance(opt_item, dict): # Check if the item is a dictionary
+                        opt_val_str = str(opt_item.get("value")) 
+                        opt_content_str = opt_item.get("content", "")
+                        if opt_val_str in current_ans_values_as_strings:
+                            mapped_options_text_list.append(opt_content_str)
+                    else:
+                        # Log a warning if an option item is not a dictionary
+                        print(f"Warning (format_followup_qa): Encountered non-dict option item for QID {q_id}. Option item: '{opt_item}'")
+                    # *** FIX ENDS HERE ***
                 
                 if mapped_options_text_list:
                     answer_display_text = ", ".join(mapped_options_text_list)
@@ -539,34 +495,27 @@ def format_retrieved_questions(retrieved_questions: List[Dict[str, Any]]) -> str
     q_string = ""
     for q_data in retrieved_questions:
         q_id = q_data.get("id", "N/A")
-        q_text = q_data.get("question", "N/A") # Assuming 'question' field holds the text
+        q_text = q_data.get("question", "N/A") 
         q_string += f"- [{q_id}] {q_text}\n"
-        # Optionally include guidelines or options if helpful for ranking context
-        # add_fields = q_data.get('additional_fields', {})
-        # if 'guidelines' in add_fields:
-        #     q_string += f"  Guidelines: {add_fields['guidelines']}\n"
     return q_string.strip() if q_string else "No questions retrieved."
 
 def parse_llm_ranking(ranked_text: str, retrieved_ids: List[Any]) -> List[int]:
-    """Parses the LLM's ranked list (e.g., "1. [123] ...") and returns ordered IDs."""
+    """Parses the LLM's ranked list and returns ordered IDs."""
     if not ranked_text:
         print("Warning: LLM ranking text is empty. Cannot parse.")
         return []
 
     ordered_ids = []
-    # Regex to find lines like: "1. [123]" or "1. [123] Question text..."
-    # It captures the number within the brackets.
     pattern = re.compile(r"^\s*\d+\.\s*\[(\d+)\]", re.MULTILINE)
     matches = pattern.findall(ranked_text)
 
     seen_ids = set()
-    # Convert retrieved_ids to a set of integers for efficient lookup
     valid_retrieved_ids_set = set()
     for r_id in retrieved_ids:
         try:
             valid_retrieved_ids_set.add(int(r_id))
         except (ValueError, TypeError):
-            pass # Ignore if a retrieved_id can't be int, though it should be
+            pass 
 
     for match_id_str in matches:
         try:
@@ -574,57 +523,48 @@ def parse_llm_ranking(ranked_text: str, retrieved_ids: List[Any]) -> List[int]:
             if q_id in valid_retrieved_ids_set and q_id not in seen_ids:
                 ordered_ids.append(q_id)
                 seen_ids.add(q_id)
-            # else:
-                # print(f"Warning: Parsed ID {q_id} from ranking not in retrieved set or already seen. Skipping.")
         except ValueError:
             print(f"Warning: Could not parse ID '{match_id_str}' from LLM ranking. Skipping.")
 
     if not ordered_ids:
-        print("Warning: Failed to parse any valid IDs from the LLM ranking output. LLM Output:\n", ranked_text[:500])
+        print(f"Warning: Failed to parse any valid IDs from the LLM ranking output. LLM Output:\n'{ranked_text[:500]}'")
     return ordered_ids
 
 def store_single_followup_question(session_id: str, question_data_full: Dict[str, Any]) -> bool:
     """
     Stores a single selected follow-up question into Supabase 'followup_responses' table.
-    question_data_full is the complete record from the 'questions' table.
     """
     try:
         q_id = question_data_full.get("id")
-        if q_id is None: # Check for None explicitly
+        if q_id is None: 
             print("Error: Question data missing ID for storage.")
             return False
 
-        # Extract and filter additional_fields for frontend interaction needs
         orig_additional_fields = question_data_full.get("additional_fields")
         interactive_fields_for_storage = {}
         if isinstance(orig_additional_fields, dict):
             if "guidelines" in orig_additional_fields:
                 interactive_fields_for_storage["guidelines"] = orig_additional_fields["guidelines"]
-            # Store option structures if present (MCQ, Multi-select)
-            if "answer_options" in orig_additional_fields: # MCQ
+            if "answer_options" in orig_additional_fields: 
                 interactive_fields_for_storage["answer_options"] = orig_additional_fields["answer_options"]
-            elif "multiple_correct_answer_options" in orig_additional_fields: # Multi-select
+            elif "multiple_correct_answer_options" in orig_additional_fields: 
                 interactive_fields_for_storage["multiple_correct_answer_options"] = orig_additional_fields["multiple_correct_answer_options"]
-            # Store flag/type for subjective input
             if "subjective_answer" in orig_additional_fields:
                  interactive_fields_for_storage["subjective_answer"] = orig_additional_fields["subjective_answer"]
 
-
         record_to_insert = {
             "session_id": session_id,
-            "question_id": int(q_id), # Ensure q_id is int
-            "question": question_data_full.get("question"), # Full question text
-            "category": question_data_full.get("category"), # Category from 'questions' table
-            "subcategory": question_data_full.get("subcategory"), # Subcategory from 'questions' table
-            "additional_fields": interactive_fields_for_storage, # Filtered interactive fields
-            "answer": None, # Initialize answer as null
-            # Store the fragment code associated with this question, taken from the 'questions' table
-            "fragment_code": question_data_full.get("fragments") # Assuming 'fragments' field holds the code like 'A', 'G'
+            "question_id": int(q_id), 
+            "question": question_data_full.get("question"), 
+            "category": question_data_full.get("category"), 
+            "subcategory": question_data_full.get("subcategory"), 
+            "additional_fields": interactive_fields_for_storage, 
+            "answer": None, 
+            "fragment_code": question_data_full.get("fragments") 
         }
 
         response = supabase.table("followup_responses").insert(record_to_insert).execute()
         
-        # More robust check for success (Supabase client v1 vs v2 differences)
         if (hasattr(response, 'data') and response.data) or \
            (hasattr(response, 'status_code') and 200 <= response.status_code < 300):
             print(f"Stored follow-up question ID: {q_id} for session {session_id}")
@@ -637,21 +577,19 @@ def store_single_followup_question(session_id: str, question_data_full: Dict[str
     except Exception as e:
         q_id_for_error = question_data_full.get('id', 'N/A')
         print(f"Exception storing follow-up question ID {q_id_for_error}: {e}")
-        if "duplicate key value violates unique constraint" in str(e).lower(): # More robust check
+        if "duplicate key value violates unique constraint" in str(e).lower(): 
             print(f"Info: Question {q_id_for_error} (session: {session_id}) likely already exists in followup_responses.")
-            return False # Treat as failure to insert a *new* question
+            return False 
         return False
 
 def wait_for_batch_answers(session_id: str, expected_question_ids: List[Any]):
     """
-    Waits until all questions in the provided list have non-null answers
-    in the followup_responses table for the given session.
+    Waits until all questions in the provided list have non-null answers.
     """
     if not expected_question_ids:
         print("No questions provided to wait for batch answers.")
         return
 
-    # Ensure IDs are integers for DB query
     expected_q_ids_int_set = set()
     for qid in expected_question_ids:
         try:
@@ -666,7 +604,7 @@ def wait_for_batch_answers(session_id: str, expected_question_ids: List[Any]):
     print(f"Waiting for user to answer batch of {len(expected_q_ids_int_set)} questions: {list(expected_q_ids_int_set)}...")
     
     answered_ids_set = set()
-    max_wait_loops = 120  # Approx 30 minutes (120 loops * 15s interval)
+    max_wait_loops = 120  
     current_loop = 0
 
     while answered_ids_set != expected_q_ids_int_set and current_loop < max_wait_loops:
@@ -674,7 +612,6 @@ def wait_for_batch_answers(session_id: str, expected_question_ids: List[Any]):
         remaining_ids_to_check = list(expected_q_ids_int_set - answered_ids_set)
         
         try:
-            # Fetch answer status for remaining questions
             response = supabase.table("followup_responses") \
                 .select("question_id, answer") \
                 .eq("session_id", session_id) \
@@ -683,33 +620,30 @@ def wait_for_batch_answers(session_id: str, expected_question_ids: List[Any]):
 
             if response.data:
                 for row in response.data:
-                    if row.get('answer') is not None: # Answer exists and is not null
+                    if row.get('answer') is not None: 
                         answered_ids_set.add(int(row['question_id']))
             
             if answered_ids_set == expected_q_ids_int_set:
                 print("All questions in the batch have been answered. Proceeding...")
-                return # Exit function
+                return 
 
-            if current_loop % 4 == 0: # Print status roughly every minute
+            if current_loop % 4 == 0: 
                  print(f"  Waiting... {len(expected_q_ids_int_set - answered_ids_set)} questions remaining (Attempt {current_loop}/{max_wait_loops}).")
-            time.sleep(15)  # Wait before checking again
+            time.sleep(15)  
 
         except Exception as e:
             print(f"Error checking answers for batch {remaining_ids_to_check}: {e}. Retrying after delay.")
-            time.sleep(20) # Wait longer on error before retrying loop
+            time.sleep(20) 
 
     if answered_ids_set != expected_q_ids_int_set:
         unanswered_count = len(expected_q_ids_int_set - answered_ids_set)
         print(f"Timeout or max attempts reached waiting for answers. {unanswered_count} questions still unanswered.")
-        # Decide if an exception should be raised or if the pipeline should continue with partial data.
-
 
 # --- Main RAG Pipeline ---
 
 def run_iterative_rag_pipeline(session_id: str) -> bool:
     """
     Main orchestrator for the iterative RAG assessment pipeline.
-    Returns True if completed (even if by max limits), False if aborted due to critical error.
     """
     print(f"\n{'='*20} Unified RAG Pipeline Started for Session: {session_id} {'='*20}")
 
@@ -717,30 +651,27 @@ def run_iterative_rag_pipeline(session_id: str) -> bool:
     print("\n--- Step 1: Fetching Initial Data & Setup ---")
     survey_questions_raw_list = get_survey_questions()
     survey_responses_list = get_survey_responses(session_id)
-    all_db_fragments_info_list = get_all_fragments_info_from_db() # Gets all fragment info (code, desc)
+    all_db_fragments_info_list = get_all_fragments_info_from_db() 
     all_dependency_rules_list = get_dependency_rules()
     
-    # Fetches all question IDs and their primary fragment codes from the 'questions' table
     all_questions_raw_data_for_map = supabase.table("questions").select("id, fragments").execute().data or []
     all_questions_id_to_fragment_map = iteration_logic.get_fragment_question_map(all_questions_raw_data_for_map)
 
     if not survey_questions_raw_list or not survey_responses_list or not all_db_fragments_info_list:
-        print("CRITICAL ERROR: Failed to fetch essential initial data (survey questions, responses, or fragment info). Aborting pipeline.")
+        print("CRITICAL ERROR: Failed to fetch essential initial data. Aborting pipeline.")
         return False
     if not all_questions_id_to_fragment_map:
-        print("CRITICAL ERROR: Failed to build the question_id_to_fragment_map. Ensure 'questions' table has 'id' and 'fragments' data. Aborting.")
+        print("CRITICAL ERROR: Failed to build question_id_to_fragment_map. Aborting.")
         return False
 
-
     industry_context_text = get_industry_context(survey_responses_list)
-    # Determines category like {"category": "Green Within Software"} from Q16
     category_filter_from_q16 = build_category_filter(survey_responses_list) 
     
     assessment_category_name = category_filter_from_q16.get("category")
     active_baseline_ids: List[int]
     active_fragment_quotas: Dict[str, int]
     active_offload_priority: Dict[str, int]
-    active_target_fragments_list: List[str] # e.g., ['A','B','C'] or ['G','H','I']
+    active_target_fragments_list: List[str] 
     assessment_type_log_message: str
 
     if assessment_category_name == "Green Within Software":
@@ -765,29 +696,24 @@ def run_iterative_rag_pipeline(session_id: str) -> bool:
 
     print(f"Assessment Type Determined: {assessment_type_log_message}")
 
-    # Filter all_db_fragments_info_list to get info only for active_target_fragments_list
-    # This becomes the definitive fragment_info_map for this assessment run.
     current_assessment_fragment_info_map = {
         item['fragment']: item 
         for item in all_db_fragments_info_list 
         if item.get('fragment') in active_target_fragments_list
     }
-    # Validate that all fragments in active_target_fragments_list have corresponding info
     for frag_code_check in active_target_fragments_list:
         if frag_code_check not in current_assessment_fragment_info_map:
             print(f"CRITICAL ERROR: Fragment code '{frag_code_check}' from active list "
-                  f"is missing in fetched fragment_info_map. Ensure 'fragment_info' table is complete "
-                  f"and iteration_logic.FRAGMENTS_GWS/GWIS lists are correct. Aborting.")
+                  f"is missing in fetched fragment_info_map. Aborting.")
             return False
 
-    # Initialize fragment_states for *active* fragments only for this assessment run
     fragment_states_map = {
         frag_id_init: {
             "quota_assigned": active_fragment_quotas.get(frag_id_init, active_fragment_quotas.get('DEFAULT_QUOTA', 0)),
             "quota_fulfilled": 0, "is_complete": False, "questions_asked_in_fragment": 0,
             "estimated_dependency_count": 0, "answered_independent_questions": 0,
             "readiness_score": 0.0, "maturity_score": 0.0, 
-            "status_summary": "No status summary generated yet." # For storing FRAGMENT_STATUS_SUMMARY output
+            "status_summary": "No status summary generated yet." 
         }
         for frag_id_init in active_target_fragments_list
     }
@@ -795,26 +721,23 @@ def run_iterative_rag_pipeline(session_id: str) -> bool:
     print(f"Industry Context: {industry_context_text}")
     print(f"Active Fragments for this assessment: {active_target_fragments_list}")
     print(f"Active Fragment Quotas: {{ {', '.join([f'{f}: {active_fragment_quotas.get(f)}' for f in active_target_fragments_list])} }}")
-    # This category_filter_from_q16 is used for RPC calls to filter questions by overall assessment category
     print(f"Category filter for DB queries (from Q16): {category_filter_from_q16}")
-
 
     # --- 2. Determine and Store Baseline Questions ---
     print(f"\n--- Step 2: Determining & Storing Baseline Questions for {assessment_type_log_message} ---")
-    baseline_question_ids_to_ask_list = active_baseline_ids # Use the selected set
+    baseline_question_ids_to_ask_list = active_baseline_ids 
     print(f"Selected baseline IDs: {baseline_question_ids_to_ask_list}")
         
     baseline_questions_actually_stored_count = 0
     if baseline_question_ids_to_ask_list:
-        # Fetch details for these specific baseline questions from 'questions' table
         baseline_questions_details_map = get_question_details_by_ids(baseline_question_ids_to_ask_list)
         
         if len(baseline_questions_details_map) != len(set(baseline_question_ids_to_ask_list)):
             print(f"Warning: Not all baseline question IDs found in 'questions' table. "
                   f"Requested: {len(set(baseline_question_ids_to_ask_list))}, Found: {len(baseline_questions_details_map)}")
 
-        for bq_id in baseline_question_ids_to_ask_list: # Iterate actual IDs to ensure order if needed
-            bq_data = baseline_questions_details_map.get(int(bq_id)) # Ensure key is int
+        for bq_id in baseline_question_ids_to_ask_list: 
+            bq_data = baseline_questions_details_map.get(int(bq_id)) 
             if bq_data:
                 if store_single_followup_question(session_id, bq_data):
                     baseline_questions_actually_stored_count += 1
@@ -824,23 +747,18 @@ def run_iterative_rag_pipeline(session_id: str) -> bool:
     else:
         print("No baseline questions configured for this assessment type.")
 
-
     # --- 3. Wait for Baseline Answers ---
     if baseline_question_ids_to_ask_list and baseline_questions_actually_stored_count > 0:
         print(f"\n--- Step 3: Waiting for {baseline_questions_actually_stored_count} Baseline Question Answers ---")
-        # We wait for the IDs we intended to ask and believe were stored.
-        # wait_for_batch_answers handles cases where some might not be in DB or are already answered.
         wait_for_batch_answers(session_id, baseline_question_ids_to_ask_list)
     else:
         print("No baseline questions to wait for (either none selected, none configured, or none successfully stored).")
 
     # --- 4. Generate Initial Summaries (AFTER Baseline Answers) ---
     print("\n--- Step 4: Generating Initial Context Summaries (Post-Baseline) ---")
-    # Fetch all followup responses again, now that baseline questions should be answered
     all_followups_post_baseline_list = get_followup_responses(session_id, answered_only=False)
     all_answered_followups_post_baseline_list = [r for r in all_followups_post_baseline_list if r.get("answer") is not None]
 
-    # Survey Context Summary (uses initial survey responses)
     formatted_survey_qa_text = format_survey_qa(survey_questions_raw_list, survey_responses_list)
     survey_context_summary_text = call_llm(
         prompt=prompt_templates.SUMMARIZE_SURVEY_CONTEXT_PROMPT.format(
@@ -848,48 +766,40 @@ def run_iterative_rag_pipeline(session_id: str) -> bool:
         )
     ) or "Survey context summary generation failed or returned empty."
 
-    # Baseline Summary (uses answers to *active* baseline questions)
     answered_baseline_responses_list = [
         r for r in all_answered_followups_post_baseline_list if r.get("question_id") in active_baseline_ids
     ]
-    formatted_baseline_qa_text = format_followup_qa(answered_baseline_responses_list)
+    formatted_baseline_qa_text = format_followup_qa(answered_baseline_responses_list) # This is where the error occurred
     baseline_summary_text = call_llm(
         prompt=prompt_templates.BASELINE_SUMMARY_PROMPT.format(
             baseline_questions_answers=formatted_baseline_qa_text
         )
     ) or "Baseline summary generation failed or returned empty."
     
-    # Initial Common Context Summary (combines survey and baseline summaries)
     initial_common_context_summary_text = call_llm(
         prompt=prompt_templates.COMMON_INITIAL_CONTEXT_SUMMARY_PROMPT.format(
             baseline_summary=baseline_summary_text, 
-            survey_context_summary=survey_context_summary_text
+            survey_context_summary=survey_context_summary_text 
         )
     ) or "Initial common context summary generation failed or returned empty."
     print(f"\nInitial Common Context Summary (Post-Baseline Wait):\n{initial_common_context_summary_text[:500]}...")
     
-    # This initial summary will be the 'common_context_summary' for the first main iteration
     current_common_context_summary = initial_common_context_summary_text
 
-
     # --- 5. Track Overall State (Post-Baseline, Pre-Main Loop) ---
-    # Get all question IDs stored so far in followup_responses for this session
-    # This list, `globally_stored_qids_in_session`, will be updated each iteration
-    # and used for exclusion lists to prevent re-asking.
     all_followups_for_global_tracking = get_followup_responses(session_id, answered_only=False)
     globally_stored_qids_in_session = list(set(
         [int(r.get("question_id")) for r in all_followups_for_global_tracking if r.get("question_id") is not None]
     ))
 
-    # Calculate non-baseline questions asked SO FAR (should be 0 here if starting fresh)
     total_non_baseline_questions_asked_count = sum(
-        1 for qid in globally_stored_qids_in_session if qid not in active_baseline_ids # Compare with active set
+        1 for qid in globally_stored_qids_in_session if qid not in active_baseline_ids 
     )
     
     print(f"Total Questions Stored in 'followup_responses' (incl. baseline) after baseline phase: {len(globally_stored_qids_in_session)}")
     print(f"Non-Baseline Questions Asked so far: {total_non_baseline_questions_asked_count}")
     
-    unspent_quota_from_previous_iteration = 0 # Initialize for the first iteration
+    unspent_quota_from_previous_iteration = 0 
 
     # --- 6. Main Iteration Loop ---
     print("\n" + "="*25 + " Starting Main Iterative Questioning " + "="*25)
@@ -897,11 +807,9 @@ def run_iterative_rag_pipeline(session_id: str) -> bool:
         print(f"\n--- Iteration {current_iteration_num}/{iteration_logic.MAX_ITERATIONS} ---")
 
         # --- 6a. Fetch latest answers & Update Fragment States ---
-        # These reflect answers submitted up to the END of the PREVIOUS iteration (or baseline phase)
         all_followups_iter_start_list = get_followup_responses(session_id, answered_only=False)
         all_answered_followups_iter_start_list = [r for r in all_followups_iter_start_list if r.get("answer") is not None]
         
-        # Update globally_stored_qids_in_session with any new answers that might have appeared if polling is slow
         globally_stored_qids_in_session = list(set(
             [int(r.get("question_id")) for r in all_followups_iter_start_list if r.get("question_id") is not None]
         ))
@@ -909,97 +817,87 @@ def run_iterative_rag_pipeline(session_id: str) -> bool:
         print(f"Debug Iter {current_iteration_num}: Updating fragment states. Total globally stored QIDs: {len(globally_stored_qids_in_session)}")
         fragment_states_map = iteration_logic.update_fragment_states(
             fragment_states_map,
-            all_followups_iter_start_list, # Pass all, answered or not, for asked counts
+            all_followups_iter_start_list, 
             all_dependency_rules_list,
-            all_questions_id_to_fragment_map, # Global map of QID to its primary fragment code
-            active_baseline_ids, # Pass the active baseline set for this assessment
+            all_questions_id_to_fragment_map, 
+            active_baseline_ids, 
             current_iteration_num
         )
         
         # --- 6b. Determine Available Questions & Check for Assessment Completion ---
         current_fragment_pool_counts = {}
-        # Dependency exclusions based on answers collected SO FAR (up to end of prev iter)
         dependency_excluded_ids_this_iter = calculate_dependency_exclusions(
             all_dependency_rules_list, all_answered_followups_iter_start_list
         )
         
-        # For pool counting, exclude ALL questions already in followup_responses for this session, PLUS dependency exclusions
         combined_exclude_ids_for_pool_rpc = list(set(globally_stored_qids_in_session + dependency_excluded_ids_this_iter))
         
-        # RPC filter for counting available questions in pools
-        rpc_filter_for_pool_count = category_filter_from_q16.copy() # Base on overall assessment category
+        rpc_filter_for_pool_count = category_filter_from_q16.copy() 
         rpc_filter_for_pool_count["exclude_ids"] = combined_exclude_ids_for_pool_rpc
 
         print(f"Debug Iter {current_iteration_num}: Pool count exclude_ids count: {len(combined_exclude_ids_for_pool_rpc)}")
-        for frag_code_pool_count in fragment_states_map: # Iterate over active fragments
+        for frag_code_pool_count in fragment_states_map: 
             if not fragment_states_map[frag_code_pool_count].get('is_complete', False):
                 try:
                     count_response = supabase.rpc(
-                        "count_matching_documents_by_fragment", # RPC needs 'fragment_filter' and 'filter' (with category & exclude_ids)
+                        "count_matching_documents_by_fragment", 
                         {"fragment_filter": str(frag_code_pool_count), "filter": rpc_filter_for_pool_count}
                     ).execute()
                     current_fragment_pool_counts[frag_code_pool_count] = count_response.data if count_response.data is not None else 0
                 except Exception as e_rpc_count:
                     print(f"Error calling count_matching_documents_by_fragment RPC for {frag_code_pool_count}: {e_rpc_count}")
-                    current_fragment_pool_counts[frag_code_pool_count] = 0 # Assume 0 if error
-                # print(f"  Fragment {frag_code_pool_count}: Available Pool Count = {current_fragment_pool_counts.get(frag_code_pool_count, 0)}")
-
-        # Check for completion (all quotas met, max questions, or all active pools exhausted)
+                    current_fragment_pool_counts[frag_code_pool_count] = 0 
+        
         if iteration_logic.check_if_assessment_complete(fragment_states_map, total_non_baseline_questions_asked_count, current_fragment_pool_counts):
-            print(f"Assessment complete at start of Iteration {current_iteration_num} based on check_if_assessment_complete. Ending.")
+            print(f"Assessment complete at start of Iteration {current_iteration_num}. Ending.")
             break
         
         # --- 6c. Determine Targets for This Iteration ---
         iteration_targets_map, total_questions_allocated_this_iter = iteration_logic.determine_iteration_targets(
             fragment_states_map,
             current_fragment_pool_counts,
-            active_offload_priority, # Pass the offload priorities for the active assessment type
+            active_offload_priority, 
             unspent_quota_from_previous_iteration,
             current_iteration_num
         )
 
         if total_questions_allocated_this_iter == 0:
             print(f"No questions allocated by determine_iteration_targets for Iteration {current_iteration_num}.")
-            # Re-check completion, as zero allocation might be due to pool exhaustion not caught before
             if iteration_logic.check_if_assessment_complete(fragment_states_map, total_non_baseline_questions_asked_count, current_fragment_pool_counts):
                  print("Assessment confirmed complete or pools exhausted after 0 allocation. Ending iterations.")
             else:
-                 print("Pools might still be available but no target allocated (check iteration_logic or priorities). Ending iterations for safety.")
-            break # Avoid potential infinite loop if something is misconfigured
+                 print("Pools might still be available but no target allocated. Ending iterations for safety.")
+            break 
 
         # --- 6d. Generate/Update Common Context Summary (for Iterations > 1) ---
         if current_iteration_num > 1:
             print(f"Generating updated common context for Iteration {current_iteration_num}...")
-            # Prepare fragment descriptors for currently active fragments
             current_iter_fragment_descriptors_text = "\n".join(
                 [f"- {f_id_desc}: {current_assessment_fragment_info_map.get(f_id_desc, {}).get('description', 'N/A')}" 
                  for f_id_desc in active_target_fragments_list if f_id_desc in fragment_states_map]
             )
-            # Use status summaries generated at the END of the *previous* iteration
             current_iter_fragment_qa_status_summaries_text = "\n".join(
                 [f"Fragment {f_id_stat_sum}: Status Update:\n{state_stat_sum.get('status_summary', 'No status summary available.')}\n" 
                  for f_id_stat_sum, state_stat_sum in fragment_states_map.items() if f_id_stat_sum in active_target_fragments_list]
             )
-            current_common_context_summary = call_llm( # Update the variable
+            current_common_context_summary = call_llm( 
                 prompt_templates.COMMON_CONTEXT_SUMMARY_PROMPT.format(
-                    baseline_survey_summary=initial_common_context_summary_text, # The one from start of pipeline
+                    baseline_survey_summary=initial_common_context_summary_text, 
                     industry_context=industry_context_text,
                     fragment_descriptors=current_iter_fragment_descriptors_text,
-                    fragment_qa_summaries=current_iter_fragment_qa_status_summaries_text # These are from end of prev iter
+                    fragment_qa_summaries=current_iter_fragment_qa_status_summaries_text 
                 )
             ) or "Common context update generation failed or returned empty."
             print(f"Updated Common Context Summary (Iter {current_iteration_num}):\n {current_common_context_summary[:500]}...")
-        # Else (current_iteration_num == 1): current_common_context_summary is already the initial_common_context_summary_text
 
         # --- 6e. Fragment Processing: Retrieve, Rank, Select Candidate Questions ---
         print(f"\n--- Iteration {current_iteration_num}: Processing Targeted Fragments ---")
         candidates_selected_this_iteration_list = [] 
-        all_retrieved_qdata_this_iteration_map = {} # Stores {fragment_code: [list_of_retrieved_q_dicts]}
-        shortfall_per_fragment_map = {} # Tracks {fragment_code: num_shortfall}
+        all_retrieved_qdata_this_iteration_map = {} 
+        shortfall_per_fragment_map = {} 
 
-        # Exclusions for actual retrieval: all globally stored QIDs + current dependency exclusions
         dependency_excluded_ids_for_retrieval_rpc = calculate_dependency_exclusions(
-            all_dependency_rules_list, all_answered_followups_iter_start_list # Based on answers before this iter's batch
+            all_dependency_rules_list, all_answered_followups_iter_start_list 
         )
         combined_exclude_ids_for_retrieval_rpc = list(set(globally_stored_qids_in_session + dependency_excluded_ids_for_retrieval_rpc))
         print(f"Debug Iter {current_iteration_num}: Combined Exclusions for Retrieval RPC: {len(combined_exclude_ids_for_retrieval_rpc)} IDs")
@@ -1012,18 +910,16 @@ def run_iterative_rag_pipeline(session_id: str) -> bool:
             print(f"\n  Processing Fragment: {current_fragment_code_proc} (Target Questions: {target_q_count_for_fragment})")
             
             fragment_descriptor_obj = current_assessment_fragment_info_map.get(current_fragment_code_proc)
-            if not fragment_descriptor_obj: # Should be caught earlier, but defensive
+            if not fragment_descriptor_obj: 
                 print(f"  Error: Description for active fragment {current_fragment_code_proc} not found. Skipping.")
                 shortfall_per_fragment_map[current_fragment_code_proc] = target_q_count_for_fragment
                 continue
             fragment_descriptor_text_proc = fragment_descriptor_obj.get("description", "N/A")
 
-            # Generate Fragment QA Summary (using answers specific to this fragment from previous iterations)
             frag_specific_answered_followups_list = []
-            for resp in all_answered_followups_iter_start_list: # Answers before this iter's batch
+            for resp in all_answered_followups_iter_start_list: 
                 resp_qid = resp.get("question_id")
                 if resp_qid is not None and all_questions_id_to_fragment_map.get(int(resp_qid)) == current_fragment_code_proc:
-                    # Ensure question text is available in resp, fetch if not (might be redundant if format_followup_qa handles it)
                     if not resp.get("question"): 
                         q_detail_for_frag_qa = get_question_details_by_ids([resp_qid]).get(int(resp_qid))
                         if q_detail_for_frag_qa: resp["question"] = q_detail_for_frag_qa.get("question", "N/A")
@@ -1037,14 +933,13 @@ def run_iterative_rag_pipeline(session_id: str) -> bool:
                 )
             ) or f"Fragment {current_fragment_code_proc} QA summary generation failed."
 
-            # Generate Final Pre-Retrieval Summary (the query for vector search)
             final_pre_retrieval_summary_text_proc = call_llm(
                 prompt_templates.FINAL_PRE_RETRIEVAL_PROMPT.format(
                     common_context_summary=current_common_context_summary, 
                     fragment_descriptor=fragment_descriptor_text_proc,
                     fragment_qa_summary=fragment_qa_summary_text_proc, 
                     industry_context=industry_context_text
-                ), max_tokens=1800 # Ensure this is adequate
+                ), max_tokens=1800 
             ) or f"Pre-retrieval summary for {current_fragment_code_proc} generation failed."
 
             if "failed" in final_pre_retrieval_summary_text_proc.lower() or not final_pre_retrieval_summary_text_proc.strip():
@@ -1052,20 +947,17 @@ def run_iterative_rag_pipeline(session_id: str) -> bool:
                 shortfall_per_fragment_map[current_fragment_code_proc] = target_q_count_for_fragment
                 continue
             
-            # Embed the pre-retrieval summary to get a query vector
             query_embedding_vector = embed_text(final_pre_retrieval_summary_text_proc, task_type="RETRIEVAL_QUERY")
             if not query_embedding_vector:
                 print(f"  Error: Failed to generate embedding for pre-retrieval summary of {current_fragment_code_proc}. Skipping.")
                 shortfall_per_fragment_map[current_fragment_code_proc] = target_q_count_for_fragment
                 continue
 
-            # Prepare filter for RPC retrieval: overall category + combined exclusions
             rpc_filter_for_question_retrieval = category_filter_from_q16.copy()
             rpc_filter_for_question_retrieval["exclude_ids"] = combined_exclude_ids_for_retrieval_rpc
             
             retrieved_questions_from_rpc_list = []
             try:
-                # Retrieve target_q_count + a buffer (e.g., 3-5) to allow for ranking choices and fallbacks
                 num_to_retrieve_with_buffer = target_q_count_for_fragment + 3 
                 retrieval_response = supabase.rpc(
                     "match_documents_by_fragment", 
@@ -1082,16 +974,15 @@ def run_iterative_rag_pipeline(session_id: str) -> bool:
                 all_retrieved_qdata_this_iteration_map[current_fragment_code_proc] = copy.deepcopy(retrieved_questions_from_rpc_list)
             except Exception as e_rpc_match:
                 print(f"  Error during RPC 'match_documents_by_fragment' for {current_fragment_code_proc}: {e_rpc_match}")
-                all_retrieved_qdata_this_iteration_map[current_fragment_code_proc] = [] # Ensure key exists
+                all_retrieved_qdata_this_iteration_map[current_fragment_code_proc] = [] 
                 shortfall_per_fragment_map[current_fragment_code_proc] = target_q_count_for_fragment
-                continue # Skip to next fragment if retrieval fails
+                continue 
 
             if not retrieved_questions_from_rpc_list:
                 print(f"  No questions retrieved from RPC for {current_fragment_code_proc}.")
                 shortfall_per_fragment_map[current_fragment_code_proc] = target_q_count_for_fragment
                 continue
 
-            # Rank Retrieved Questions using LLM
             formatted_retrieved_for_llm_ranking = format_retrieved_questions(retrieved_questions_from_rpc_list)
             ranked_list_text_from_llm = call_llm(
                 prompt_templates.POST_RETRIEVAL_FILTERING_PROMPT.format(
@@ -1099,20 +990,18 @@ def run_iterative_rag_pipeline(session_id: str) -> bool:
                     fragment_descriptor=fragment_descriptor_text_proc,
                     fragment_qa_summary=fragment_qa_summary_text_proc, 
                     industry_context=industry_context_text,
-                    retrieved_questions=formatted_retrieved_for_llm_ranking # List of " - [id] text"
+                    retrieved_questions=formatted_retrieved_for_llm_ranking 
                 )
             )
             
-            # Parse LLM ranking and select top 'target_q_count_for_fragment'
             original_retrieved_ids_list = [q_data.get('id') for q_data in retrieved_questions_from_rpc_list if q_data.get('id') is not None]
             ranked_qids_from_llm_list = parse_llm_ranking(ranked_list_text_from_llm or "", original_retrieved_ids_list)
 
             current_fragment_selected_candidates_list = []
-            if ranked_qids_from_llm_list: # If LLM ranking was successful and parsed
+            if ranked_qids_from_llm_list: 
                 print(f"  LLM ranked {len(ranked_qids_from_llm_list)} IDs for {current_fragment_code_proc}. Selecting top {target_q_count_for_fragment}.")
                 for rank_idx, selected_qid_from_llm in enumerate(ranked_qids_from_llm_list):
                     if len(current_fragment_selected_candidates_list) < target_q_count_for_fragment:
-                        # Find the similarity score for this QID from the original RPC retrieval
                         similarity_score = 0.0
                         for rpc_q_data in retrieved_questions_from_rpc_list:
                             if rpc_q_data.get('id') == selected_qid_from_llm:
@@ -1120,17 +1009,16 @@ def run_iterative_rag_pipeline(session_id: str) -> bool:
                                 break
                         current_fragment_selected_candidates_list.append({
                             "fragment": current_fragment_code_proc, "id": selected_qid_from_llm, 
-                            "rank": rank_idx, "similarity": similarity_score # Store original rank from LLM
+                            "rank": rank_idx, "similarity": similarity_score 
                         })
-                    else: break # Reached target for this fragment
-            else: # Fallback to similarity scores if LLM ranking failed or parsed no IDs
+                    else: break 
+            else: 
                 print(f"  Warning: Using fallback (similarity-based) selection for {current_fragment_code_proc} as LLM ranking failed or was empty.")
-                # The RPC 'match_documents_by_fragment' should ideally return questions sorted by similarity.
                 for i_fb, q_data_fb in enumerate(retrieved_questions_from_rpc_list):
                     if len(current_fragment_selected_candidates_list) < target_q_count_for_fragment:
                          current_fragment_selected_candidates_list.append({
                             "fragment": current_fragment_code_proc, "id": q_data_fb['id'], 
-                            "rank": -1, # Indicate fallback selection
+                            "rank": -1, 
                             "similarity": q_data_fb.get('similarity', 0.0)
                         })
                     else: break 
@@ -1138,51 +1026,40 @@ def run_iterative_rag_pipeline(session_id: str) -> bool:
             print(f"  Selected {len(current_fragment_selected_candidates_list)} candidate questions for {current_fragment_code_proc}.")
             candidates_selected_this_iteration_list.extend(current_fragment_selected_candidates_list)
             
-            # Calculate shortfall for this fragment
             current_fragment_shortfall = target_q_count_for_fragment - len(current_fragment_selected_candidates_list)
             if current_fragment_shortfall > 0:
                 shortfall_per_fragment_map[current_fragment_code_proc] = current_fragment_shortfall
                 print(f"  Shortfall for {current_fragment_code_proc}: {current_fragment_shortfall} questions.")
-        # --- End of Loop for Processing Each Targeted Fragment ---
-
+        
         print(f"\nDebug Iter {current_iteration_num}: Raw candidates selected across all fragments ({len(candidates_selected_this_iteration_list)}): "
               f"{[c['id'] for c in candidates_selected_this_iteration_list]}")
         
-        # --- 6f. De-duplicate Candidate Questions Selected Across Different Fragments ---
-        # (If a question was selected for Fragment G and also for Fragment H, pick one instance)
+        # --- 6f. De-duplicate Candidate Questions ---
         deduplicated_candidates_for_iter_list = []
         seen_qids_in_iter_selection = set()
-        # Optional: Prioritize based on fragment priority or rank if a QID is in multiple candidate lists
-        # For now, simple first-come-first-served from candidates_selected_this_iteration_list
         for cand_to_dedup in candidates_selected_this_iteration_list:
             q_id_cand_dedup = cand_to_dedup.get('id')
             if q_id_cand_dedup not in seen_qids_in_iter_selection:
                 deduplicated_candidates_for_iter_list.append(cand_to_dedup)
                 seen_qids_in_iter_selection.add(q_id_cand_dedup)
-            # else:
-                # print(f"  Debug: Removing duplicate candidate ID {q_id_cand_dedup} (from fragment {cand_to_dedup.get('fragment')}) during cross-fragment de-duplication.")
         
         candidates_after_deduplication_list = deduplicated_candidates_for_iter_list
         print(f"Debug Iter {current_iteration_num}: Deduplicated candidates for iteration ({len(candidates_after_deduplication_list)}): "
               f"{[c['id'] for c in candidates_after_deduplication_list]}")
 
-        # --- 6g. Calculate Unspent Quota for Next Iteration ---
-        unspent_quota_from_previous_iteration = sum(shortfall_per_fragment_map.values()) # Total shortfall from all fragments this iter
+        # --- 6g. Calculate Unspent Quota ---
+        unspent_quota_from_previous_iteration = sum(shortfall_per_fragment_map.values()) 
         print(f"Total shortfall this iteration (becomes unspent for next iter): {unspent_quota_from_previous_iteration}")
 
-        # --- 6h. Apply 'must_ask_first' Rule (No Co-occurrence of dependent and its independent Q) ---
+        # --- 6h. Apply 'must_ask_first' Rule ---
         print(f"\n--- Iteration {current_iteration_num}: Applying 'must_ask_first' (No Co-occurrence) to {len(candidates_after_deduplication_list)} candidates ---")
         must_ask_first_rules_active_list = [r for r in all_dependency_rules_list if r.get("rule_type") == "must_ask_first"]
-        
-        # `combined_exclude_ids_for_retrieval_rpc` already contains globally stored + dependency exclusions
-        # This is the set of questions that cannot be chosen as fallbacks.
         
         final_selection_for_storage_list = copy.deepcopy(candidates_after_deduplication_list)
 
         if must_ask_first_rules_active_list and final_selection_for_storage_list:
             made_change_in_maf_loop = True 
             maf_loop_iteration_count = 0
-            # Max loops to prevent infinite cycles if rules are complex/conflicting
             max_maf_loops = len(final_selection_for_storage_list) * len(must_ask_first_rules_active_list) + 5 
             
             while made_change_in_maf_loop and maf_loop_iteration_count < max_maf_loops:
@@ -1193,24 +1070,14 @@ def run_iterative_rag_pipeline(session_id: str) -> bool:
                 for maf_rule in must_ask_first_rules_active_list:
                     try:
                         dep_id_maf = int(maf_rule.get("dependent_question_id"))
-                        indep_id_str_maf = maf_rule.get("independent_question_id") # Should be a single ID for this rule type
+                        indep_id_str_maf = maf_rule.get("independent_question_id") 
                         indep_id_maf = int(indep_id_str_maf.strip()) if indep_id_str_maf and indep_id_str_maf.strip() else None
-                    except (ValueError, TypeError): continue # Skip malformed rule
+                    except (ValueError, TypeError): continue 
 
                     if not dep_id_maf or not indep_id_maf: continue
 
-                    # Rule Violation: If dependent Q (dep_id_maf) is selected AND its required independent Q (indep_id_maf) is NOT YET ANSWERED
-                    # AND the independent Q (indep_id_maf) is ALSO in the current selection batch. This means they would be asked together.
-                    # The goal is: indep_id_maf must be asked *first* (i.e., in a previous batch and answered).
-                    # If indep_id_maf is NOT in `globally_stored_qids_in_session` (meaning not asked before)
-                    # AND dep_id_maf is in `current_selected_qids_in_maf_loop`
-                    # AND indep_id_maf is ALSO in `current_selected_qids_in_maf_loop`
-                    # This is a co-occurrence violation. We should prioritize asking indep_id_maf and remove/replace dep_id_maf.
-
-                    # Simpler interpretation used before: If both are selected in the *same batch*, remove the dependent one.
                     if dep_id_maf in current_selected_qids_in_maf_loop and indep_id_maf in current_selected_qids_in_maf_loop:
-                        print(f"  INFO (must_ask_first): Co-occurrence violation. Dependent Q {dep_id_maf} and its Independent Q {indep_id_maf} "
-                              f"are both in the current selection. Attempting to replace Q {dep_id_maf}.")
+                        print(f"  INFO (must_ask_first): Co-occurrence violation. Dependent Q {dep_id_maf} and Independent Q {indep_id_maf}. Attempting to replace Q {dep_id_maf}.")
                         
                         index_of_candidate_to_replace = -1
                         for i_maf, c_maf_cand in enumerate(final_selection_for_storage_list):
@@ -1220,55 +1087,47 @@ def run_iterative_rag_pipeline(session_id: str) -> bool:
                         
                         if index_of_candidate_to_replace != -1:
                             fragment_code_of_replaced_q = final_selection_for_storage_list[index_of_candidate_to_replace].get('fragment')
-                            # Try to find a fallback from the originally retrieved questions for that fragment
                             fallback_options_for_maf = all_retrieved_qdata_this_iteration_map.get(fragment_code_of_replaced_q, [])
                             replacement_found_for_maf = False
                             for fb_q_maf_data in fallback_options_for_maf:
                                 fb_qid_maf = fb_q_maf_data.get('id')
                                 if fb_qid_maf is None: continue
 
-                                # A valid fallback:
-                                # 1. Is NOT the dependent question itself.
-                                # 2. Is NOT the independent question (to avoid re-introducing co-occurrence with another rule).
-                                # 3. Is NOT already in the current selection batch.
-                                # 4. Is NOT in the global exclusion list (already asked, or dep-excluded for other reasons).
                                 is_valid_maf_fallback = (
                                     fb_qid_maf != dep_id_maf and \
                                     fb_qid_maf != indep_id_maf and \
                                     fb_qid_maf not in current_selected_qids_in_maf_loop and \
-                                    fb_qid_maf not in combined_exclude_ids_for_retrieval_rpc # Use the broad exclusion list
+                                    fb_qid_maf not in combined_exclude_ids_for_retrieval_rpc 
                                 )
                                 if is_valid_maf_fallback:
                                     print(f"  INFO (must_ask_first): Replacing Q {dep_id_maf} with fallback Q {fb_qid_maf}.")
                                     final_selection_for_storage_list[index_of_candidate_to_replace] = {
                                         "fragment": fragment_code_of_replaced_q, "id": fb_qid_maf,
-                                        "rank": -2, "similarity": fb_q_maf_data.get('similarity', 0.0) # rank -2 indicates MAF replacement
+                                        "rank": -2, "similarity": fb_q_maf_data.get('similarity', 0.0) 
                                     }
                                     replacement_found_for_maf = True
-                                    made_change_in_maf_loop = True # A change was made, re-evaluate rules
-                                    break # Found a replacement, break from fallback options loop
+                                    made_change_in_maf_loop = True 
+                                    break 
                             
-                            if not replacement_found_for_maf: # No suitable fallback found
-                                print(f"  WARNING (must_ask_first): No valid fallback for Q {dep_id_maf} (fragment {fragment_code_of_replaced_q}). Removing it from selection.")
+                            if not replacement_found_for_maf: 
+                                print(f"  WARNING (must_ask_first): No valid fallback for Q {dep_id_maf}. Removing it.")
                                 final_selection_for_storage_list.pop(index_of_candidate_to_replace)
-                                made_change_in_maf_loop = True # A change was made
+                                made_change_in_maf_loop = True 
                             
                         if made_change_in_maf_loop:
-                            break # Restart rule checking from the beginning of must_ask_first_rules_active_list
+                            break 
                 
                 if maf_loop_iteration_count >= max_maf_loops:
-                    print("  WARNING (must_ask_first): Max loops reached during 'must_ask_first' rule application. "
-                          "There might be complex or conflicting rules. Proceeding with current selection.")
+                    print("  WARNING (must_ask_first): Max loops reached. Proceeding with current selection.")
         
         print(f"Final selection after 'must_ask_first' for Iteration {current_iteration_num} ({len(final_selection_for_storage_list)} questions): "
               f"{[c.get('id') for c in final_selection_for_storage_list]}")
 
-        # --- 6i. Store Final Questions for This Iteration & Update Global State ---
-        qids_actually_stored_this_iteration_list = [] # Tracks QIDs successfully stored *in this specific iteration*
+        # --- 6i. Store Final Questions & Update Global State ---
+        qids_actually_stored_this_iteration_list = [] 
         if final_selection_for_storage_list:
             print(f"\n--- Iteration {current_iteration_num}: Storing {len(final_selection_for_storage_list)} Final Questions ---")
             
-            # Fetch details for all questions in the final selection batch at once for efficiency
             final_qids_to_fetch_details = [c.get('id') for c in final_selection_for_storage_list if c.get('id') is not None]
             final_question_details_map_for_storage = get_question_details_by_ids(final_qids_to_fetch_details)
 
@@ -1279,21 +1138,16 @@ def run_iterative_rag_pipeline(session_id: str) -> bool:
                 question_data_for_storing = final_question_details_map_for_storage.get(int(selected_qid_to_store))
 
                 if question_data_for_storing:
-                    # Crucial Check: Only store if NOT already in `globally_stored_qids_in_session`
                     if int(selected_qid_to_store) not in globally_stored_qids_in_session:
                         if store_single_followup_question(session_id, question_data_for_storing):
                             print(f"  Successfully stored new question ID: {selected_qid_to_store} to followup_responses.")
                             qids_actually_stored_this_iteration_list.append(int(selected_qid_to_store))
-                            globally_stored_qids_in_session.append(int(selected_qid_to_store)) # Update global tracker
+                            globally_stored_qids_in_session.append(int(selected_qid_to_store)) 
                             
-                            # Increment total *non-baseline* question count if applicable
                             if int(selected_qid_to_store) not in active_baseline_ids:
                                 total_non_baseline_questions_asked_count += 1
-                                # print(f"  Updated total_non_baseline_questions_asked_count to: {total_non_baseline_questions_asked_count}")
-                        # else: (Handled by store_single_followup_question's print)
-                            # print(f"  Error: Failed to store final question {selected_qid_to_store}. This might affect counts and unspent logic.")
-                    # else:
-                        # print(f"  INFO: Question {selected_qid_to_store} was in final selection but already globally stored. Skipping re-storage.")
+                    else:
+                         print(f"  INFO: Question {selected_qid_to_store} was in final selection but already globally stored. Skipping re-storage.")
                 else:
                     print(f"  Error: Could not fetch details for final selected question ID {selected_qid_to_store}. Cannot store.")
         else:
@@ -1301,26 +1155,17 @@ def run_iterative_rag_pipeline(session_id: str) -> bool:
         
         print(f"Total non-baseline questions asked after Iteration {current_iteration_num} storage: {total_non_baseline_questions_asked_count}")
 
-        # --- 6j. Generate Fragment Status Summaries (for next iteration's common context) ---
-        # These summaries should reflect the state of knowledge *after* this iteration's questions
-        # have been selected, but *before* they are answered by the user.
-        # They summarize what is known about each fragment leading into the questions just posed.
-        # The common context for iter N+1 will use status summaries from end of iter N.
-        
-        # We generate status summaries for ALL active fragments, regardless of whether new questions were selected for them this iter.
-        # This ensures common context for next iter has a consistent view.
+        # --- 6j. Generate Fragment Status Summaries ---
         print(f"\n--- Iteration {current_iteration_num}: Generating Fragment Status Summaries for Next Iteration ---")
         for frag_id_for_status_gen in active_target_fragments_list:
-            if frag_id_for_status_gen in fragment_states_map: # Ensure it's an active fragment for this assessment
+            if frag_id_for_status_gen in fragment_states_map: 
                 frag_desc_for_status = current_assessment_fragment_info_map.get(frag_id_for_status_gen, {}).get("description", "N/A")
                 
-                # QA summary for this fragment based on answers gathered *before* this iteration's batch is answered
-                # `all_answered_followups_iter_start_list` is the correct list here.
                 frag_specific_answered_for_status = []
-                for resp_stat_sum in all_answered_followups_iter_start_list:
+                for resp_stat_sum in all_answered_followups_iter_start_list: 
                     resp_stat_qid = resp_stat_sum.get("question_id")
                     if resp_stat_qid is not None and all_questions_id_to_fragment_map.get(int(resp_stat_qid)) == frag_id_for_status_gen:
-                        if not resp_stat_sum.get("question"): # Ensure question text
+                        if not resp_stat_sum.get("question"): 
                             q_detail_stat_sum = get_question_details_by_ids([resp_stat_qid]).get(int(resp_stat_qid))
                             if q_detail_stat_sum: resp_stat_sum["question"] = q_detail_stat_sum.get("question", "N/A")
                         frag_specific_answered_for_status.append(resp_stat_sum)
@@ -1336,24 +1181,22 @@ def run_iterative_rag_pipeline(session_id: str) -> bool:
                 current_frag_status_summary_text = call_llm(
                     prompt_templates.FRAGMENT_STATUS_SUMMARY_PROMPT.format(
                         fragment_descriptor=frag_desc_for_status,
-                        fragment_qa_summary=frag_qa_summary_for_status_prompt # Use the summary from above
+                        fragment_qa_summary=frag_qa_summary_for_status_prompt 
                     )
                 )
                 if current_frag_status_summary_text:
                     fragment_states_map[frag_id_for_status_gen]["status_summary"] = current_frag_status_summary_text
-                    # print(f"  Generated Status Summary for Fragment {frag_id_for_status_gen}.")
                 else:
                     fragment_states_map[frag_id_for_status_gen]["status_summary"] = "Status summary generation failed for this iteration."
-                    # print(f"  Failed to generate status summary for Fragment {frag_id_for_status_gen}.")
 
-        # --- 6k. Wait for User Answers for the Batch of Questions Posed in THIS Iteration ---
-        if qids_actually_stored_this_iteration_list: # Only wait if new questions were successfully stored and posed
+        # --- 6k. Wait for User Answers for THIS Iteration's Batch ---
+        if qids_actually_stored_this_iteration_list: 
             print(f"\n--- Iteration {current_iteration_num}: Waiting for user to answer {len(qids_actually_stored_this_iteration_list)} questions ---")
             wait_for_batch_answers(session_id, qids_actually_stored_this_iteration_list)
         else:
             print(f"No new questions were successfully stored and posed in Iteration {current_iteration_num}. Skipping wait.")
 
-        # --- 6l. Check Max Questions Limit (Non-Baseline) ---
+        # --- 6l. Check Max Questions Limit ---
         if total_non_baseline_questions_asked_count >= iteration_logic.MAX_TOTAL_QUESTIONS:
             print(f"Reached maximum total non-baseline questions limit ({iteration_logic.MAX_TOTAL_QUESTIONS}) "
                   f"after Iteration {current_iteration_num}. Ending iterations.")
@@ -1361,8 +1204,7 @@ def run_iterative_rag_pipeline(session_id: str) -> bool:
         
         if current_iteration_num == iteration_logic.MAX_ITERATIONS:
             print(f"Reached maximum configured iterations ({iteration_logic.MAX_ITERATIONS}). Ending assessment.")
-        # --- End of Iteration Loop ---
-
+        
     # --- 7. Pipeline End & Final Summary ---
     print(f"\n{'='*25} RAG Pipeline Completed for Session: {session_id} {'='*25}")
     print(f"Total Non-Baseline Questions Asked During Pipeline: {total_non_baseline_questions_asked_count}")
@@ -1373,34 +1215,20 @@ def run_iterative_rag_pipeline(session_id: str) -> bool:
               f"Quota Fulfilled {state_final_summary.get('quota_fulfilled', 'N/A')}/{state_final_summary.get('quota_assigned', 'N/A')}, "
               f"Complete: {state_final_summary.get('is_complete', 'N/A')}, "
               f"Maturity: {state_final_summary.get('maturity_score', 0.0):.2f}")
-    return True # Indicate successful completion (even if by limits)
+    return True 
 
 
-# --- Execution Guard (for testing or direct script run) ---
+# --- Execution Guard ---
 if __name__ == "__main__":
-    # Replace with a valid session_id from your Supabase instance for testing
     test_session_id = "your_test_session_id_here" 
     
     if test_session_id == "your_test_session_id_here":
         print("ERROR: Please replace 'your_test_session_id_here' with an actual session ID for testing.")
-        # sys.exit(1) # Or handle more gracefully
-
-    print(f"--- Initiating Test Run for Iterative RAG Pipeline with Session ID: {test_session_id} ---")
-    
-    # Example pre-check (optional): Verify Q16 is answered for the test session
-    # This helps ensure the assessment category can be determined.
-    # temp_survey_responses = get_survey_responses(test_session_id)
-    # if temp_survey_responses:
-    #     q16_found = any(str(r.get("question_id")) == "Q16" for r in temp_survey_responses)
-    #     if not q16_found:
-    #         print(f"WARNING: Test session {test_session_id} does not seem to have an answer for Q16. Category determination might fail or default.")
-    # else:
-    #     print(f"WARNING: Could not fetch survey responses for test session {test_session_id} for pre-check.")
-
-    pipeline_status_success = run_iterative_rag_pipeline(test_session_id)
-    
-    if pipeline_status_success:
-        print(f"\n--- Pipeline execution completed for session {test_session_id}. ---")
     else:
-        print(f"\n--- Pipeline execution failed or was aborted for session {test_session_id}. ---")
-
+        print(f"--- Initiating Test Run for Iterative RAG Pipeline with Session ID: {test_session_id} ---")
+        pipeline_status_success = run_iterative_rag_pipeline(test_session_id)
+        
+        if pipeline_status_success:
+            print(f"\n--- Pipeline execution completed for session {test_session_id}. ---")
+        else:
+            print(f"\n--- Pipeline execution failed or was aborted for session {test_session_id}. ---")
